@@ -56,6 +56,24 @@ run_test_suite :-
     test(prelude_include),
     test(prelude_exclude),
     test(lexer_basic),
+    test(lexer_atoms),
+    test(lexer_variables),
+    test(lexer_anonymous_var),
+    test(lexer_integers),
+    test(lexer_floats),
+    test(lexer_strings),
+    test(lexer_operators),
+    test(lexer_line_comment),
+    test(lexer_block_comment),
+    test(lexer_annotation),
+    test(lexer_clause_terminator),
+    test(lexer_list_syntax),
+    test(lexer_positions),
+    test(lexer_multiline_pos),
+    test(lexer_error_unterminated_string),
+    test(lexer_error_unterminated_atom),
+    test(lexer_error_block_comment),
+    test(lexer_error_unknown_char),
     test(optimiser_identity),
     test(optimiser_seq_true),
     test(optimiser_fail_branch),
@@ -383,3 +401,110 @@ run_test(exec_equiv_cut) :-
     npl_body_to_ir(Body, IR),
     npl_ir_to_body(IR, GenBody),
     call(GenBody).
+
+%% =====================================================================
+%% Lexer tests — Stage 3
+%% =====================================================================
+
+%% Atoms: plain lowercase and quoted atoms
+run_test(lexer_atoms) :-
+    npl_lex_string('foo', [atom(foo)]),
+    npl_lex_string('hello_world', [atom(hello_world)]),
+    npl_lex_string('is', [atom(is)]).
+
+%% Variables: uppercase-initial identifiers
+run_test(lexer_variables) :-
+    npl_lex_string('X', [var('X')]),
+    npl_lex_string('MyVar', [var('MyVar')]),
+    npl_lex_string('ABC', [var('ABC')]).
+
+%% Anonymous and named-underscore variables
+run_test(lexer_anonymous_var) :-
+    npl_lex_string('_', [var('_')]),
+    npl_lex_string('_Foo', [var('_Foo')]),
+    npl_lex_string('_count', [var('_count')]),
+    npl_lex_string('_1', [var('_1')]),
+    npl_lex_string('__foo', [var('__foo')]).
+
+%% Integer literals
+run_test(lexer_integers) :-
+    npl_lex_string('0', [integer(0)]),
+    npl_lex_string('42', [integer(42)]),
+    npl_lex_string('100', [integer(100)]).
+
+%% Floating-point literals
+run_test(lexer_floats) :-
+    npl_lex_string('3.14', [float(3.14)]),
+    npl_lex_string('0.5', [float(0.5)]),
+    npl_lex_string('1.0', [float(1.0)]).
+
+%% Double-quoted string literals
+run_test(lexer_strings) :-
+    npl_lex_string('"hello"', [string(hello)]),
+    npl_lex_string('"foo bar"', [string('foo bar')]).
+
+%% Operator symbol sequences
+run_test(lexer_operators) :-
+    npl_lex_string(':-', [atom(':-')]),
+    npl_lex_string('=', [atom('=')]),
+    npl_lex_string('>=', [atom('>=')]),
+    npl_lex_string('\\+', [atom('\\+')]).
+
+%% Line comments are discarded; surrounding tokens are kept
+run_test(lexer_line_comment) :-
+    npl_lex_string('foo % a comment', [atom(foo)]),
+    npl_lex_string('a % ignore\nb', [atom(a), atom(b)]).
+
+%% Block comments are discarded
+run_test(lexer_block_comment) :-
+    npl_lex_string('/* comment */ foo', [atom(foo)]),
+    npl_lex_string('a /* mid */ b', [atom(a), atom(b)]).
+
+%% Cognitive-code annotations (%@ ...) produce annot/1 tokens
+run_test(lexer_annotation) :-
+    npl_lex_string('%@ cognitive:marker', [annot('cognitive:marker')]),
+    npl_lex_string('foo %@ tag', [atom(foo), annot(tag)]).
+
+%% Clause terminator: period is emitted as punct('.')
+run_test(lexer_clause_terminator) :-
+    npl_lex_string('foo.', [atom(foo), punct('.')]),
+    npl_lex_string('a :- b.', [atom(a), atom(':-'), atom(b), punct('.')]).
+
+%% List syntax: brackets and pipe
+run_test(lexer_list_syntax) :-
+    npl_lex_string('[a,b,c]', [punct('['), atom(a), punct(','),
+                                atom(b), punct(','), atom(c), punct(']')]),
+    npl_lex_string('[H|T]', [punct('['), var('H'), punct('|'),
+                              var('T'), punct(']')]).
+
+%% Source positions are recorded correctly
+run_test(lexer_positions) :-
+    npl_lex_string_pos('foo bar', Tokens),
+    Tokens = [tok(atom(foo), pos(1,1)), tok(atom(bar), pos(1,5))].
+
+%% Multiline: line counter advances on newlines
+run_test(lexer_multiline_pos) :-
+    npl_lex_string_pos('foo\nbar', Tokens),
+    Tokens = [tok(atom(foo), pos(1,1)), tok(atom(bar), pos(2,1))].
+
+%% Error: unterminated double-quoted string
+run_test(lexer_error_unterminated_string) :-
+    npl_lex_string('"hello', Tokens),
+    Tokens = [error(unterminated_string)].
+
+%% Error: unterminated single-quoted atom
+%  Build the atom code list explicitly: single-quote followed by 'hello' (no closing quote).
+run_test(lexer_error_unterminated_atom) :-
+    atom_codes(Input, [0'', 0'h, 0'e, 0'l, 0'l, 0'o]),
+    npl_lex_string(Input, Tokens),
+    Tokens = [error(unterminated_atom)].
+
+%% Error: unterminated block comment
+run_test(lexer_error_block_comment) :-
+    npl_lex_string('/* unclosed', Tokens),
+    Tokens = [error(unterminated_block_comment)].
+
+%% Error: unknown character produces an error token; lexing continues
+run_test(lexer_error_unknown_char) :-
+    npl_lex_string('$foo', Tokens),
+    Tokens = [error(unknown_char('$')), atom(foo)].
