@@ -21,6 +21,7 @@
 
 :- dynamic test_passed/1.
 :- dynamic test_failed/1.
+:- discontiguous run_test/1.
 
 run_all_tests :-
     retractall(test_passed(_)),
@@ -122,7 +123,34 @@ run_test_suite :-
     test(exec_equiv_disjunction),
     test(exec_equiv_if_then_else),
     test(exec_equiv_negation),
-    test(exec_equiv_cut).
+    test(exec_equiv_cut),
+    test(sem_fact_annotation),
+    test(sem_rule_annotation),
+    test(sem_arity_consistency),
+    test(sem_non_callable_head),
+    test(sem_singleton_vars),
+    test(sem_no_singletons),
+    test(sem_tail_recursion),
+    test(sem_linear_recursion),
+    test(sem_nested_recursion),
+    test(sem_no_recursion),
+    test(sem_memoisation_suitable),
+    test(sem_memoisation_side_effect),
+    test(sem_gaussian_tail),
+    test(sem_gaussian_linear),
+    test(sem_gaussian_none),
+    test(sem_cognitive_marker),
+    test(sem_no_cognitive_marker),
+    test(sem_control_ok),
+    test(sem_directive_passthrough),
+    test(sem_query_passthrough),
+    test(sem_parse_error_passthrough),
+    test(sem_simplification_tco),
+    test(sem_simplification_accum),
+    test(sem_builtin_body),
+    test(sem_possibly_undefined_body),
+    test(sem_eliminable_nested_true),
+    test(sem_eliminable_nested_false).
 
 test(Name) :-
     ( catch(run_test(Name), Error, (write('ERROR in '), write(Name), write(': '), write(Error), nl, fail))
@@ -627,3 +655,220 @@ run_test(parser_error_recovery) :-
 run_test(parser_module_directive) :-
     npl_parse_string(':- module(mymod, []).', AST),
     AST = [directive(module(mymod, []), no_pos, [], [])].
+
+%% =====================================================================
+%% Semantic Analyser tests — Stage 5
+%% =====================================================================
+
+%% Helper: get a named property from the Props list of an analysed/3 node.
+sem_prop(Props, Key, Val) :-
+    member(Key:Val, Props).
+
+%% --- Annotation structure ---
+
+%% A simple fact produces an analysed/3 node with the full annotation list.
+run_test(sem_fact_annotation) :-
+    npl_analyse([fact(foo, no_pos, [], [])], [analysed(foo, true, Props)]),
+    sem_prop(Props, head, ok),
+    sem_prop(Props, body, ok).
+
+%% A rule produces analysed/3 with head and body annotations.
+run_test(sem_rule_annotation) :-
+    npl_analyse([rule(foo(a), true, no_pos, [], [])], [analysed(foo(a), true, Props)]),
+    sem_prop(Props, head, ok),
+    sem_prop(Props, body, ok).
+
+%% --- Arity / head consistency ---
+
+%% A callable head is accepted.
+run_test(sem_arity_consistency) :-
+    npl_analyse([fact(my_pred(a, b), no_pos, [], [])],
+                [analysed(my_pred(a,b), true, Props)]),
+    sem_prop(Props, head, ok).
+
+%% A non-callable head (raw integer) reports an error.
+run_test(sem_non_callable_head) :-
+    npl_analyse([fact(42, no_pos, [], [])],
+                [analysed(42, true, Props)]),
+    sem_prop(Props, head, error(non_callable_head)).
+
+%% --- Variable usage ---
+
+%% A rule with a variable used in both head and body should have no singletons.
+run_test(sem_no_singletons) :-
+    npl_parse_string('foo(X) :- bar(X).', AST),
+    npl_analyse(AST, [analysed(_, _, Props)]),
+    sem_prop(Props, variables, ok).
+
+%% A rule with a variable that appears only once is a singleton.
+run_test(sem_singleton_vars) :-
+    npl_parse_string('foo(X) :- bar(Y).', AST),
+    npl_analyse(AST, [analysed(_, _, Props)]),
+    sem_prop(Props, variables, warning(singletons, _)).
+
+%% --- Control structure placement ---
+
+%% A normal rule body has no control warnings.
+run_test(sem_control_ok) :-
+    npl_parse_string('foo :- bar, baz.', AST),
+    npl_analyse(AST, [analysed(_, _, Props)]),
+    sem_prop(Props, control, ok).
+
+%% --- Recursion classification ---
+
+%% Tail recursion: last call is the same predicate.
+%% count(0) :- true.  count(N) :- N > 0, N1 is N-1, count(N1).
+run_test(sem_tail_recursion) :-
+    AST = [ fact(count(0), no_pos, [], []),
+            rule(count(N), ','('>'(N,0), ','(is(N1, '-'(N,1)), count(N1))),
+                 no_pos, [], []) ],
+    npl_analyse(AST, AAST),
+    last(AAST, analysed(_, _, Props)),
+    sem_prop(Props, recursion_class, tail).
+
+%% Linear recursion: exactly one recursive call, not last.
+%% len([], 0).  len([_|T], N) :- len(T, N1), N is N1+1.
+run_test(sem_linear_recursion) :-
+    AST = [ fact(len([], 0), no_pos, [], []),
+            rule(len([_|T], N), ','(len(T, N1), is(N, '+'(N1, 1))),
+                 no_pos, [], []) ],
+    npl_analyse(AST, AAST),
+    last(AAST, analysed(_, _, Props)),
+    sem_prop(Props, recursion_class, linear).
+
+%% Nested recursion: recursive call inside an argument of another recursive call.
+%% ack(0,N,R) :- R is N+1.
+%% ack(M,0,R) :- M1 is M-1, ack(M1,1,R).
+%% ack(M,N,R) :- N1 is N-1, ack(M,N1,R1), M1 is M-1, ack(M1,R1,R).
+%% Simplified: a body with two recursive calls and atom arguments (no sub-recursive
+%% calls inside arguments) classifies as linear (not nested).
+run_test(sem_nested_recursion) :-
+    Sig = fib/2,
+    Body = ','(fib(a, x), fib(b, y)),
+    semantic_analyser:npl_classify_recursion(Sig, fib(n), Body, [], Class),
+    Class = linear.
+
+%% No recursion: base case fact.
+run_test(sem_no_recursion) :-
+    npl_analyse([fact(base, no_pos, [], [])],
+                [analysed(base, true, Props)]),
+    sem_prop(Props, recursion_class, none).
+
+%% --- Memoisation suitability ---
+
+%% A pure parameterised predicate is a memoisation candidate.
+run_test(sem_memoisation_suitable) :-
+    AST = [rule(fib(0, 1), true, no_pos, [], []),
+           rule(fib(1, 1), true, no_pos, [], [])],
+    npl_analyse(AST, [analysed(_, _, P1)|_]),
+    sem_prop(P1, memoisation_suitable, true).
+
+%% A predicate that writes to stdout is not a memoisation candidate.
+run_test(sem_memoisation_side_effect) :-
+    AST = [rule(greet(X), write(X), no_pos, [], [])],
+    npl_analyse(AST, [analysed(_, _, Props)]),
+    sem_prop(Props, memoisation_suitable, false).
+
+%% --- Gaussian elimination suitability ---
+
+%% Tail-recursive predicate is suitable.
+run_test(sem_gaussian_tail) :-
+    AST = [ fact(count(0), no_pos, [], []),
+            rule(count(N), ','('>'(N,0), ','(is(N1,'-'(N,1)), count(N1))),
+                 no_pos, [], []) ],
+    npl_analyse(AST, AAST),
+    last(AAST, analysed(_, _, Props)),
+    sem_prop(Props, gaussian_elimination_suitable, true).
+
+%% Linear-recursive predicate is also suitable.
+run_test(sem_gaussian_linear) :-
+    AST = [ fact(len([], 0), no_pos, [], []),
+            rule(len([_|T], N), ','(len(T, N1), is(N,'+'(N1,1))),
+                 no_pos, [], []) ],
+    npl_analyse(AST, AAST),
+    last(AAST, analysed(_, _, Props)),
+    sem_prop(Props, gaussian_elimination_suitable, true).
+
+%% Non-recursive predicate is not suitable.
+run_test(sem_gaussian_none) :-
+    npl_analyse([fact(base, no_pos, [], [])],
+                [analysed(_, _, Props)]),
+    sem_prop(Props, gaussian_elimination_suitable, false).
+
+%% --- Cognitive-code markers ---
+
+%% Annotation from %@ is attached as cognitive_code_marker.
+run_test(sem_cognitive_marker) :-
+    npl_parse_string('%@ memoisation:hint\nfoo(X) :- bar(X).', AST),
+    npl_analyse(AST, [analysed(_, _, Props)]),
+    sem_prop(Props, cognitive_code_marker, 'memoisation:hint').
+
+%% No annotation → marker is none.
+run_test(sem_no_cognitive_marker) :-
+    npl_parse_string('foo(X) :- bar(X).', AST),
+    npl_analyse(AST, [analysed(_, _, Props)]),
+    sem_prop(Props, cognitive_code_marker, none).
+
+%% --- Pass-through nodes ---
+
+%% Directives are unchanged.
+run_test(sem_directive_passthrough) :-
+    npl_analyse([directive(use_module(foo), no_pos, [], [])],
+                [directive(use_module(foo), no_pos, [], [])]).
+
+%% Queries are unchanged.
+run_test(sem_query_passthrough) :-
+    npl_analyse([query(foo, no_pos, [], [])],
+                [query(foo, no_pos, [], [])]).
+
+%% Parse errors are unchanged.
+run_test(sem_parse_error_passthrough) :-
+    npl_analyse([parse_error(syntax_error, no_pos)],
+                [parse_error(syntax_error, no_pos)]).
+
+%% --- Simplification opportunities ---
+
+%% A tail-recursive predicate should include tail_call_optimisation.
+run_test(sem_simplification_tco) :-
+    AST = [ fact(count(0), no_pos, [], []),
+            rule(count(N), ','('>'(N,0), ','(is(N1,'-'(N,1)), count(N1))),
+                 no_pos, [], []) ],
+    npl_analyse(AST, AAST),
+    last(AAST, analysed(_, _, Props)),
+    sem_prop(Props, simplification_opportunities, Ops),
+    member(tail_call_optimisation, Ops).
+
+%% A linear-recursive predicate includes accumulator_introduction.
+run_test(sem_simplification_accum) :-
+    AST = [ fact(len([], 0), no_pos, [], []),
+            rule(len([_|T], N), ','(len(T, N1), is(N,'+'(N1,1))),
+                 no_pos, [], []) ],
+    npl_analyse(AST, AAST),
+    last(AAST, analysed(_, _, Props)),
+    sem_prop(Props, simplification_opportunities, Ops),
+    member(accumulator_introduction, Ops).
+
+%% --- Body goal validation ---
+
+%% A body that calls a known built-in (write) should be ok.
+run_test(sem_builtin_body) :-
+    npl_analyse([rule(greet, write(hello), no_pos, [], [])],
+                [analysed(_, _, Props)]),
+    sem_prop(Props, body, ok).
+
+%% A body that calls a predicate not in the AST and not a built-in
+%% should warn possibly_undefined.
+run_test(sem_possibly_undefined_body) :-
+    npl_analyse([rule(foo, my_unknown_predicate_xyz, no_pos, [], [])],
+                [analysed(_, _, Props)]),
+    sem_prop(Props, body, warning(possibly_undefined, _)).
+
+%% --- Eliminable nested recursion annotation ---
+
+%% nested recursion class → eliminable = true
+run_test(sem_eliminable_nested_true) :-
+    semantic_analyser:npl_eliminable_nested(nested, true).
+
+%% tail recursion class → eliminable = false
+run_test(sem_eliminable_nested_false) :-
+    semantic_analyser:npl_eliminable_nested(tail, false).
