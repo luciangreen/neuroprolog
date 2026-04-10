@@ -1,0 +1,8 @@
+# Generated neurocode (except README)
+neurocode/*.pl
+
+# SWI-Prolog compiled state files
+*.qlf
+
+# Temporary files
+*.tmp
