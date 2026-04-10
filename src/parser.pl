@@ -162,13 +162,18 @@ npl_parse_unary(MaxPrec, [tok(Tok, _)|Ts], Term, OpPrec, Rest) :-
     npl_op_entry(OpPrec, Type, Op),
     npl_is_prefix(Type),
     OpPrec =< MaxPrec,
-    \+ Ts = [tok(punct('('), _)|_],     % not a functor call — let primary handle it
+    \+ npl_is_functor_call(Ts),         % let primary handle: f( Args )
     !,
     npl_prefix_arg_max_prec(Type, OpPrec, ArgMaxPrec),
     npl_parse_expr(ArgMaxPrec, Ts, Arg, Rest),
     Term =.. [Op, Arg].
 npl_parse_unary(_, Tokens, Term, 0, Rest) :-
     npl_parse_primary(Tokens, Term, Rest).
+
+%% npl_is_functor_call(+Tokens)
+%% Succeeds when Tokens begins with '(', indicating a functor-call argument list
+%% rather than a standalone prefix-operator application.
+npl_is_functor_call([tok(punct('('), _)|_]).
 
 %% npl_parse_infix_loop(+MaxPrec, +Left, +LeftPrec, +Tokens, -Term, -Rest)
 %% Extend Left by consuming infix operators whose precedence does not exceed MaxPrec.
