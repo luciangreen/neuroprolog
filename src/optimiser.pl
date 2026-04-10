@@ -64,6 +64,8 @@ npl_rewrite_term(ir_if(C, T, E), Pattern, Replacement, ir_if(C1, T1, E1)) :- !,
     npl_rewrite_term(C, Pattern, Replacement, C1),
     npl_rewrite_term(T, Pattern, Replacement, T1),
     npl_rewrite_term(E, Pattern, Replacement, E1).
+npl_rewrite_term(ir_not(G), Pattern, Replacement, ir_not(G1)) :- !,
+    npl_rewrite_term(G, Pattern, Replacement, G1).
 npl_rewrite_term(Term, _, _, Term).
 
 %% npl_unfold_data/2

@@ -3,7 +3,7 @@
 % Translates optimised IR into neurocode (valid Prolog).
 % Neurocode is inspectable, editable, and diffable in Git.
 
-:- module(codegen, [npl_generate/2]).
+:- module(codegen, [npl_generate/2, npl_ir_to_body/2]).
 
 %% npl_generate/2
 %  npl_generate(+OptIR, -Neurocode)
@@ -20,6 +20,9 @@ npl_ir_to_clause(ir_clause(Head, IRBody, _), (Head :- Body)) :-
 npl_ir_to_body(ir_true, true) :- !.
 npl_ir_to_body(ir_fail, fail) :- !.
 npl_ir_to_body(ir_cut, !) :- !.
+npl_ir_to_body(ir_repeat, repeat) :- !.
+npl_ir_to_body(ir_not(G), \+ Body) :- !,
+    npl_ir_to_body(G, Body).
 npl_ir_to_body(ir_call(Goal), Goal) :- !.
 npl_ir_to_body(ir_seq(A, B), (BodyA, BodyB)) :- !,
     npl_ir_to_body(A, BodyA),
