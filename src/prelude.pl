@@ -82,7 +82,7 @@ npl_numlist(Low, High, List) :-
 
 npl_numlist_acc(Low, High, Acc, List) :-
     ( Low > High
-    -> reverse(Acc, List)
+    -> npl_reverse(Acc, List)
     ;  Low1 is Low + 1,
        npl_numlist_acc(Low1, High, [Low|Acc], List)
     ).
