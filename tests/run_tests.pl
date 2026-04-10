@@ -111,6 +111,25 @@ run_test_suite :-
     test(control_ignore),
     test(control_call2),
     test(wam_compile),
+    test(wam_init),
+    test(wam_regs),
+    test(wam_heap_var),
+    test(wam_heap_atom),
+    test(wam_heap_int),
+    test(wam_heap_str),
+    test(wam_deref_var),
+    test(wam_deref_ref_chain),
+    test(wam_unify_atoms),
+    test(wam_unify_var_atom),
+    test(wam_unify_var_var),
+    test(wam_unify_struct),
+    test(wam_unify_fails),
+    test(wam_trail_unwind),
+    test(wam_push_env),
+    test(wam_pop_env),
+    test(wam_push_choice),
+    test(wam_backtrack),
+    test(wam_execute_instr),
     test(codegen_basic),
     test(ir_fail),
     test(ir_not),
@@ -228,6 +247,166 @@ run_test(control_forall) :-
 run_test(wam_compile) :-
     wam_compile_clause(foo(a), Instrs),
     Instrs = [get_constant(foo/1)].
+
+%% --- WAM Model (Stage 6) tests ---
+
+%% wam_init: initial state is well-formed
+run_test(wam_init) :-
+    wam_init_state(S),
+    wam_get_regs(S, []),
+    S = wam_state([], Heap, 0, [], [], [], [], Bindings),
+    assoc_to_list(Heap, []),
+    assoc_to_list(Bindings, []).
+
+%% wam_regs: register get/set round-trip
+run_test(wam_regs) :-
+    wam_init_state(S0),
+    wam_set_reg(S0, 1, hello, S1),
+    wam_set_reg(S1, 2, world, S2),
+    wam_get_reg(S2, 1, hello),
+    wam_get_reg(S2, 2, world).
+
+%% wam_heap_var: allocate unbound variable
+run_test(wam_heap_var) :-
+    wam_init_state(S0),
+    wam_alloc_var(S0, Addr, S1),
+    Addr =:= 0,
+    wam_heap_get(S1, 0, heap_cell(var, unbound)).
+
+%% wam_heap_atom: allocate atom and retrieve it
+run_test(wam_heap_atom) :-
+    wam_init_state(S0),
+    wam_alloc_atom(S0, foo, Addr, S1),
+    Addr =:= 0,
+    wam_heap_get(S1, 0, heap_cell(atom, foo)).
+
+%% wam_heap_int: allocate integer and retrieve it
+run_test(wam_heap_int) :-
+    wam_init_state(S0),
+    wam_alloc_int(S0, 42, Addr, S1),
+    Addr =:= 0,
+    wam_heap_get(S1, 0, heap_cell(int, 42)).
+
+%% wam_heap_str: allocate structure and retrieve it
+run_test(wam_heap_str) :-
+    wam_init_state(S0),
+    wam_alloc_str(S0, f(pair, [1, 2]), Addr, S1),
+    Addr =:= 0,
+    wam_heap_get(S1, 0, heap_cell(str, f(pair, [1, 2]))).
+
+%% wam_deref_var: deref unbound variable returns var cell
+run_test(wam_deref_var) :-
+    wam_init_state(S0),
+    wam_alloc_var(S0, Addr, S1),
+    wam_deref(Addr, S1, heap_cell(var, unbound)).
+
+%% wam_deref_ref_chain: deref follows reference chain
+run_test(wam_deref_ref_chain) :-
+    wam_init_state(S0),
+    wam_alloc_var(S0, V, S1),          % addr 0: var
+    wam_alloc_atom(S1, bar, A, S2),    % addr 1: atom bar
+    wam_do_bind(V, A, S2, S3),        % bind 0 → 1
+    wam_deref(V, S3, heap_cell(atom, bar)).
+
+%% wam_unify_atoms: unify two identical atoms succeeds
+run_test(wam_unify_atoms) :-
+    wam_init_state(S0),
+    wam_alloc_atom(S0, hello, A1, S1),
+    wam_alloc_atom(S1, hello, A2, S2),
+    wam_unify(A1, A2, S2, _S3).
+
+%% wam_unify_var_atom: unify unbound variable with atom
+run_test(wam_unify_var_atom) :-
+    wam_init_state(S0),
+    wam_alloc_var(S0, V, S1),
+    wam_alloc_atom(S1, hello, A, S2),
+    wam_unify(V, A, S2, S3),
+    wam_deref(V, S3, heap_cell(atom, hello)).
+
+%% wam_unify_var_var: unifying two vars makes them alias
+run_test(wam_unify_var_var) :-
+    wam_init_state(S0),
+    wam_alloc_var(S0, V1, S1),
+    wam_alloc_var(S1, V2, S2),
+    wam_unify(V1, V2, S2, S3),
+    % bind the shared alias to an atom
+    wam_alloc_atom(S3, shared, A, S4),
+    wam_bind(V2, A, S4, S5),
+    wam_deref(V1, S5, heap_cell(atom, shared)).
+
+%% wam_unify_struct: unify two compatible structures
+run_test(wam_unify_struct) :-
+    wam_init_state(S0),
+    % Build f(X, 1) and f(hello, Y) on heap, then unify them
+    wam_alloc_var(S0, X, S1),
+    wam_alloc_int(S1, 1, I1, S2),
+    wam_alloc_str(S2, f(pair, [X, I1]), Str1, S3),
+    wam_alloc_atom(S3, hello, Hel, S4),
+    wam_alloc_var(S4, Y, S5),
+    wam_alloc_str(S5, f(pair, [Hel, Y]), Str2, S6),
+    wam_unify(Str1, Str2, S6, S7),
+    % After unification X should point to hello, Y should point to 1
+    wam_deref(X, S7, heap_cell(atom, hello)),
+    wam_deref(Y, S7, heap_cell(int, 1)).
+
+%% wam_unify_fails: unifying incompatible atoms fails
+run_test(wam_unify_fails) :-
+    wam_init_state(S0),
+    wam_alloc_atom(S0, foo, A1, S1),
+    wam_alloc_atom(S1, bar, A2, S2),
+    \+ wam_unify(A1, A2, S2, _).
+
+%% wam_trail_unwind: bindings made after a choice point are undone
+run_test(wam_trail_unwind) :-
+    wam_init_state(S0),
+    % Allocate variable BEFORE the choice point so it survives heap trim
+    wam_alloc_var(S0, V, S1),
+    % Push choice point AFTER allocating V (HeapTop = 1 > V = 0)
+    wam_push_choice(S1, [[proceed]], [], S2),
+    % Bind V: since V(0) < HeapTop(1) this is a conditional bind → trail
+    wam_alloc_atom(S2, bound_value, A, S3),
+    wam_trail_bind(V, A, S3, S4),
+    % Variable is bound
+    wam_deref(V, S4, heap_cell(atom, bound_value)),
+    % Backtrack: trail should be unwound, V should be unbound again
+    wam_backtrack(S4, _, S5),
+    wam_deref(V, S5, heap_cell(var, unbound)).
+
+%% wam_push_env: push environment frame, continuation is saved
+run_test(wam_push_env) :-
+    wam_init_state(S0),
+    wam_push_env(S0, [proceed], S1),
+    S1 = wam_state(_, _, _, [env([], [proceed], _)|_], _, _, _, _).
+
+%% wam_pop_env: pop environment frame, continuation is restored
+run_test(wam_pop_env) :-
+    wam_init_state(S0),
+    wam_push_env(S0, [call(foo)], S1),
+    wam_pop_env(S1, RestoredCont, _S2),
+    RestoredCont = [call(foo)].
+
+%% wam_push_choice: choice point stores alternatives and saved state
+run_test(wam_push_choice) :-
+    wam_init_state(S0),
+    wam_push_choice(S0, [[proceed], [proceed]], [], S1),
+    S1 = wam_state(_, _, _, _, [choice([], [], [], 0, 0, [[proceed],[proceed]], [])|_], _, _, _).
+
+%% wam_backtrack: restore to saved state and select next alternative
+run_test(wam_backtrack) :-
+    wam_init_state(S0),
+    Alt1 = [get_constant(1/0)],
+    Alt2 = [get_constant(2/0)],
+    wam_push_choice(S0, [Alt1, Alt2], [], S1),
+    % Backtracking with Alt1+Alt2 available: picks Alt1, leaves Alt2
+    wam_backtrack(S1, RestAlts, S2),
+    RestAlts = [Alt2],
+    wam_get_cont(S2, Alt1).
+
+%% wam_execute_instr: execute a simple instruction sequence
+run_test(wam_execute_instr) :-
+    wam_init_state(S0),
+    Instrs = [enter(test/0), proceed],
+    wam_execute(Instrs, S0, _S1).
 
 run_test(codegen_basic) :-
     npl_generate([ir_clause(hello, ir_true, info(head:ok,body:ok))], Code),

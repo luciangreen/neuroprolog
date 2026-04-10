@@ -71,7 +71,79 @@ Neurocode is valid Prolog code that has been optimised by the NeuroProlog pipeli
 - Traceable back to original cognitive code markers
 - Free of chatbot, attention, or extra reasoning logic
 
-## Performance Direction
+## WAM Model (Stage 6)
+
+The `wam_model.pl` module implements a logical Warren Abstract Machine model in pure Prolog.  It is an *execution substrate* rather than a byte emulator — all WAM concepts are represented as Prolog data structures.
+
+### Execution State
+
+```
+wam_state(Regs, Heap, HTop, EnvStack, ChoiceStack, Trail, Cont, Bindings)
+```
+
+| Field         | Type                       | WAM Equivalent          |
+|---------------|----------------------------|-------------------------|
+| `Regs`        | list of terms              | Argument registers A1…  |
+| `Heap`        | assoc addr→heap_cell       | Global (heap) stack     |
+| `HTop`        | integer                    | Heap top pointer (H)    |
+| `EnvStack`    | list of `env/3`            | Environment stack (E)   |
+| `ChoiceStack` | list of `choice/7`         | Choice point stack (B)  |
+| `Trail`       | list of heap addresses     | Trail register (TR)     |
+| `Cont`        | list of WAM instructions   | Program counter (P/CP)  |
+| `Bindings`    | assoc                      | Dereferenced bindings   |
+
+### Heap Cells
+
+| Cell                     | Meaning                        |
+|--------------------------|--------------------------------|
+| `heap_cell(var, unbound)`| Unbound logic variable         |
+| `heap_cell(ref, Addr)`   | Bound reference to Addr        |
+| `heap_cell(atom, A)`     | Atomic constant A              |
+| `heap_cell(int, N)`      | Integer N                      |
+| `heap_cell(float, F)`    | Float F                        |
+| `heap_cell(str, f(F,As))`| Structure f/n with arg addrs   |
+
+### Environments and Choice Points
+
+**Environment** `env(CE, CP, Vars)` — activation record for a clause body:
+- `CE`: parent environment stack (restored on `proceed`)
+- `CP`: saved continuation (instruction list to resume)
+- `Vars`: local variable bindings
+
+**Choice point** `choice(B, E, CP, TrailLen, HeapTop, Alts, SavedRegs)` — backtrack frame:
+- `B`: saved previous choice point stack
+- `E`: saved environment stack
+- `CP`: saved continuation
+- `TrailLen`: trail length at creation time
+- `HeapTop`: heap top at creation time
+- `Alts`: remaining clause alternatives
+- `SavedRegs`: saved argument registers
+
+### Trail and Backtracking
+
+Variables allocated before the current choice point are *conditional* — any binding must be recorded on the trail.  `wam_backtrack/3` restores the trail and heap to their saved states, undoing all conditional bindings made since the choice point was created.
+
+### Key Predicates
+
+| Predicate                  | Purpose                                      |
+|----------------------------|----------------------------------------------|
+| `wam_init_state/1`         | Create empty execution state                 |
+| `wam_alloc_var/3`          | Allocate unbound variable on heap            |
+| `wam_alloc_atom/4`         | Allocate atom constant on heap               |
+| `wam_alloc_str/4`          | Allocate compound term on heap               |
+| `wam_deref/3`              | Dereference address (follows ref chain)      |
+| `wam_unify/4`              | Robinson unification over heap addresses     |
+| `wam_bind/4`               | Bind variable (conditional trail recording)  |
+| `wam_trail_bind/4`         | Bind variable and push address to trail      |
+| `wam_unwind_trail/3`       | Undo bindings back to a saved trail point    |
+| `wam_push_env/3`           | Push environment frame (call)                |
+| `wam_pop_env/3`            | Pop environment frame (proceed/return)       |
+| `wam_push_choice/4`        | Push choice point (try first alternative)    |
+| `wam_backtrack/3`          | Restore state and select next alternative    |
+| `wam_execute/3`            | Execute WAM instruction list with state      |
+| `wam_compile_clause/2`     | Compile Prolog clause to WAM instructions    |
+
+
 
 The system aims toward:
 - O(1) lookup and dispatch via tabling and hash-based indexing
