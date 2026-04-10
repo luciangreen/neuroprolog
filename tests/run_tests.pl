@@ -254,7 +254,9 @@ run_test(wam_compile) :-
 run_test(wam_init) :-
     wam_init_state(S),
     wam_get_regs(S, []),
-    S = wam_state([], _, 0, [], [], [], [], _).
+    S = wam_state([], Heap, 0, [], [], [], [], Bindings),
+    assoc_to_list(Heap, []),
+    assoc_to_list(Bindings, []).
 
 %% wam_regs: register get/set round-trip
 run_test(wam_regs) :-

@@ -247,9 +247,9 @@ wam_bind(Addr, Target, State, State1) :-
 %% wam_is_conditional_bind(+Addr, +State)
 %  True if binding Addr requires trail recording (variable is older
 %  than the current choice point's heap top).
+%  Fails if there are no choice points (nothing to backtrack to).
 wam_is_conditional_bind(Addr, wam_state(_,_,_,_,[choice(_,_,_,_,BHTop,_,_)|_],_,_,_)) :-
-    Addr < BHTop, !.
-wam_is_conditional_bind(_, _).
+    Addr < BHTop.
 
 %% wam_do_bind(+Addr, +Target, +State, -State1)
 %  Perform the actual binding without trail recording.
@@ -362,11 +362,13 @@ wam_trim_heap(Heap, HTop, Trimmed) :-
     include([K]>>(K < HTop), Keys, KeepKeys),
     list_to_assoc_subset(KeepKeys, Heap, Trimmed).
 
-list_to_assoc_subset([], _, Empty) :- empty_assoc(Empty).
-list_to_assoc_subset([K|Ks], Src, Assoc) :-
-    get_assoc(K, Src, V),
-    list_to_assoc_subset(Ks, Src, Assoc0),
-    put_assoc(K, Assoc0, V, Assoc).
+%% list_to_assoc_subset(+Keys, +Src, -Assoc)
+%  Build a new association from the key-value pairs of Src whose keys
+%  appear in Keys.  Used by wam_trim_heap/3 to reconstruct the heap
+%  after backtracking discards cells added after a choice point.
+list_to_assoc_subset(Keys, Src, Assoc) :-
+    maplist([K, K-V]>>(get_assoc(K, Src, V)), Keys, Pairs),
+    list_to_assoc(Pairs, Assoc).
 
 % ============================================================
 % 7. UNIFICATION
@@ -490,8 +492,15 @@ wam_instruction(enter(_FA), S, S, Cont) :-
     wam_get_cont(S, Cont).
 
 % --- Environment management ---
+% NOTE: In this logical model `allocate` saves the continuation
+% (remaining instructions after allocate itself) into the new
+% environment frame.  When `proceed` fires it restores that
+% continuation, which is the sequence the clause body must complete
+% before returning.  This differs from the byte-level WAM where
+% `allocate` saves the caller's CP register; here the caller's
+% continuation is threaded via the instruction list itself.
 wam_instruction(allocate(_N), S, S1, Cont) :-
-    wam_get_cont(S, [_|Cont]),   % consume the allocate instruction
+    wam_get_cont(S, Cont),
     wam_push_env(S, Cont, S1).
 
 wam_instruction(deallocate, S, S1, Cont) :-
@@ -540,11 +549,11 @@ wam_instruction(neck_cut, S, S1, Cont) :-
     wam_cut(S, S1).
 
 % --- Get instructions (head argument matching) ---
-wam_instruction(get_variable(Reg, VarAddr), S, S1, Cont) :-
+wam_instruction(get_variable(Reg, NewVarAddr), S, S1, Cont) :-
     wam_get_cont(S, [_|Cont]),
     wam_get_reg(S, Reg, RegVal),
-    wam_alloc_var(S, VarAddr, Stmp),
-    wam_unify(VarAddr, RegVal, Stmp, S1).
+    wam_alloc_var(S, NewVarAddr, Stmp),
+    wam_unify(NewVarAddr, RegVal, Stmp, S1).
 
 wam_instruction(get_constant(Reg, Atom), S, S1, Cont) :-
     wam_get_cont(S, [_|Cont]),
@@ -567,10 +576,10 @@ wam_instruction(get_nil(Reg), S, S1, Cont) :-
     wam_unify(RegVal, NilAddr, Stmp, S1).
 
 % --- Put instructions (argument register loading for calls) ---
-wam_instruction(put_variable(Reg, VarAddr), S, S1, Cont) :-
+wam_instruction(put_variable(Reg, NewVarAddr), S, S1, Cont) :-
     wam_get_cont(S, [_|Cont]),
-    wam_alloc_var(S, VarAddr, S1_tmp),
-    wam_set_reg(S1_tmp, Reg, VarAddr, S1).
+    wam_alloc_var(S, NewVarAddr, S1_tmp),
+    wam_set_reg(S1_tmp, Reg, NewVarAddr, S1).
 
 wam_instruction(put_constant(Reg, Atom), S, S1, Cont) :-
     wam_get_cont(S, [_|Cont]),
