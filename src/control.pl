@@ -12,7 +12,16 @@
     npl_forall/2,
     npl_between/3,
     npl_succ/2,
-    npl_plus/3
+    npl_plus/3,
+    npl_true/0,
+    npl_fail/0,
+    npl_repeat/0,
+    npl_conj/2,
+    npl_call/2,
+    npl_call/3,
+    npl_call/4,
+    npl_call/5,
+    npl_call/6
 ]).
 
 %% npl_if/3  — if-then-else
@@ -56,3 +65,23 @@ npl_plus(X, Y, Z) :-
     ; ground(X), ground(Z) -> Y is Z - X
     ; ground(Y), ground(Z) -> X is Z - Y
     ).
+
+%% npl_true/0
+npl_true.
+
+%% npl_fail/0
+npl_fail :- fail.
+
+%% npl_repeat/0  — nondeterministic: succeeds arbitrarily many times
+npl_repeat.
+npl_repeat :- npl_repeat.
+
+%% npl_conj/2  — conjunction as a predicate
+npl_conj(A, B) :- call(A), call(B).
+
+%% npl_call/2-6  — higher-order call with extra arguments
+npl_call(Goal, A) :- call(Goal, A).
+npl_call(Goal, A, B) :- call(Goal, A, B).
+npl_call(Goal, A, B, C) :- call(Goal, A, B, C).
+npl_call(Goal, A, B, C, D) :- call(Goal, A, B, C, D).
+npl_call(Goal, A, B, C, D, E) :- call(Goal, A, B, C, D, E).
