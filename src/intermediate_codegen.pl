@@ -21,6 +21,9 @@ npl_clause_to_ir(clause(Head, Body),
     npl_body_to_ir(Body, IRBody).
 
 %% npl_body_to_ir/2
+%% NOTE: The if-then-else clause (';'('->'(...), ...)) MUST appear before
+%% the general disjunction clause (';'(A, B)) so that (Cond -> Then ; Else)
+%% is correctly recognised as ir_if rather than ir_disj.
 npl_body_to_ir(true, ir_true) :- !.
 npl_body_to_ir(fail, ir_fail) :- !.
 npl_body_to_ir(repeat, ir_repeat) :- !.

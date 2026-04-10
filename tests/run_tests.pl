@@ -279,11 +279,11 @@ run_test(control_repeat) :-
     N =:= 1, !.
 
 run_test(control_conj) :-
-    npl_conj(true, (X = yes)),
+    npl_conj(true, X = yes),
     X == yes.
 
 run_test(control_or) :-
-    npl_or(fail, (Y = ok)),
+    npl_or(fail, Y = ok),
     Y == ok.
 
 run_test(control_once) :-
