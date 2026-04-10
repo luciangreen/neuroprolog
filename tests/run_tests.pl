@@ -74,6 +74,25 @@ run_test_suite :-
     test(lexer_error_unterminated_atom),
     test(lexer_error_block_comment),
     test(lexer_error_unknown_char),
+    test(parser_fact),
+    test(parser_fact_structured),
+    test(parser_rule),
+    test(parser_rule_conjunction),
+    test(parser_directive),
+    test(parser_query),
+    test(parser_operators_is),
+    test(parser_operators_comparison),
+    test(parser_list_empty),
+    test(parser_list_elements),
+    test(parser_list_tail),
+    test(parser_negation),
+    test(parser_if_then_else),
+    test(parser_disjunction),
+    test(parser_multiple_clauses),
+    test(parser_annotations),
+    test(parser_positions),
+    test(parser_error_recovery),
+    test(parser_module_directive),
     test(optimiser_identity),
     test(optimiser_seq_true),
     test(optimiser_fail_branch),
@@ -508,3 +527,103 @@ run_test(lexer_error_block_comment) :-
 run_test(lexer_error_unknown_char) :-
     npl_lex_string('$foo', Tokens),
     Tokens = [error(unknown_char('$')), atom(foo)].
+
+%% =====================================================================
+%% Parser tests — Stage 4
+%% =====================================================================
+
+%% Unit clause (fact) with no body
+run_test(parser_fact) :-
+    npl_parse_string('foo.', AST),
+    AST = [fact(foo, no_pos, [], [])].
+
+%% Structured fact: head with arguments
+run_test(parser_fact_structured) :-
+    npl_parse_string('foo(a, b).', AST),
+    AST = [fact(foo(a,b), no_pos, [], [])].
+
+%% Simple rule:  head :- body.
+run_test(parser_rule) :-
+    npl_parse_string('foo :- bar.', AST),
+    AST = [rule(foo, bar, no_pos, [], [])].
+
+%% Rule with conjunctive body
+run_test(parser_rule_conjunction) :-
+    npl_parse_string('foo :- a, b, c.', AST),
+    AST = [rule(foo, ','(a,','(b,c)), no_pos, [], [])].
+
+%% Directive:  :- Goal.
+run_test(parser_directive) :-
+    npl_parse_string(':- dynamic(foo/1).', AST),
+    AST = [directive(dynamic('/'(foo,1)), no_pos, [], [])].
+
+%% Query:  ?- Goal.
+run_test(parser_query) :-
+    npl_parse_string('?- member(X, [1,2]).', AST),
+    AST = [query(member(var('X'),[1,2]), no_pos, [], [])].
+
+%% Arithmetic expression via 'is' operator
+run_test(parser_operators_is) :-
+    npl_parse_string('r :- X is 1 + 2.', AST),
+    AST = [rule(r, is(var('X'), '+'(1,2)), no_pos, [], [])].
+
+%% Comparison operator
+run_test(parser_operators_comparison) :-
+    npl_parse_string('r :- X >= 0.', AST),
+    AST = [rule(r, '>='(var('X'),0), no_pos, [], [])].
+
+%% Empty list
+run_test(parser_list_empty) :-
+    npl_parse_string('r([]).', AST),
+    AST = [fact(r([]), no_pos, [], [])].
+
+%% List with elements
+run_test(parser_list_elements) :-
+    npl_parse_string('r([1,2,3]).', AST),
+    AST = [fact(r([1,2,3]), no_pos, [], [])].
+
+%% List with explicit tail
+run_test(parser_list_tail) :-
+    npl_parse_string('r([H|T]).', AST),
+    AST = [fact(r([var('H')|var('T')]), no_pos, [], [])].
+
+%% Prefix negation operator  \+
+run_test(parser_negation) :-
+    npl_parse_string('r :- \\+ foo.', AST),
+    AST = [rule(r, '\\+'(foo), no_pos, [], [])].
+
+%% If-then-else:  ( Cond -> Then ; Else )
+run_test(parser_if_then_else) :-
+    npl_parse_string('r :- (a -> b ; c).', AST),
+    AST = [rule(r, ';'('->'(a,b),c), no_pos, [], [])].
+
+%% Disjunction without if-then
+run_test(parser_disjunction) :-
+    npl_parse_string('r :- a ; b.', AST),
+    AST = [rule(r, ';'(a,b), no_pos, [], [])].
+
+%% Multiple clauses in one source string
+run_test(parser_multiple_clauses) :-
+    npl_parse_string('foo. bar :- baz.', AST),
+    AST = [fact(foo, no_pos, [], []),
+           rule(bar, baz, no_pos, [], [])].
+
+%% Cognitive-code annotations are attached to the following clause
+run_test(parser_annotations) :-
+    npl_parse_string('%@ my:note\nfoo.', AST),
+    AST = [fact(foo, no_pos, ['my:note'], [])].
+
+%% Source positions are tracked when parsing via npl_parse_string_pos/2
+run_test(parser_positions) :-
+    npl_parse_string_pos('foo.', AST),
+    AST = [fact(foo, pos(1,1), [], [])].
+
+%% Syntax errors produce a parse_error node; parsing continues afterward
+run_test(parser_error_recovery) :-
+    npl_parse_string('!bad. foo.', AST),
+    AST = [parse_error(syntax_error, _), fact(foo, no_pos, [], [])].
+
+%% Module directive: :- module(Name, Exports).
+run_test(parser_module_directive) :-
+    npl_parse_string(':- module(mymod, []).', AST),
+    AST = [directive(module(mymod, []), no_pos, [], [])].
