@@ -2033,7 +2033,7 @@ run_test(memo12_cache_clear) :-
     npl_memo_clear_all,
     npl_memo_call(member(a, [a,b,c])),
     npl_memo_inspect(member/2, Before),
-    Before \= [],
+    Before \== [],
     npl_memo_clear(member/2),
     npl_memo_inspect(member/2, After),
     After == [].
