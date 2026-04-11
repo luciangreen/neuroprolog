@@ -64,7 +64,8 @@ npl_subterm_set(Term, [N|Ns], New, Result) :-
 
 %% npl_subterm_addresses/2
 %  npl_subterm_addresses(+Term, -Addresses)
-%  Enumerate all subterm addresses in a term (BFS order).
+%  Enumerate all subterm addresses in a term in BFS order.
+%  The root address [] is first; sibling addresses precede their children.
 npl_subterm_addresses(Term, Addresses) :-
     npl_subterm_addresses_queue([[]], Term, [], RevAddrs),
     reverse(RevAddrs, Addresses).
