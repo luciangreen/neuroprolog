@@ -20,6 +20,7 @@
 :- consult('src/nested_recursion').
 :- consult('src/codegen').
 :- consult('src/control').
+:- consult('src/optimiser_pipeline').
 :- consult('src/wam_model').
 :- consult('src/interpreter').
 :- consult('src/cognitive_markers').
@@ -343,7 +344,30 @@ run_test_suite :-
     test(ncm14_meta_pred_sig),
     test(ncm14_meta_source_marker),
     test(ncm14_meta_rebuild_version),
-    test(ncm14_full_pipeline).
+    test(ncm14_full_pipeline),
+    % --- Stage 15: Optimiser Pipeline ---
+    test(pipe15_pass_names_ordered),
+    test(pipe15_default_config_has_all_passes),
+    test(pipe15_default_all_enabled),
+    test(pipe15_enable_disable),
+    test(pipe15_is_enabled_true),
+    test(pipe15_is_enabled_false),
+    test(pipe15_run_empty_ir),
+    test(pipe15_run_report_length),
+    test(pipe15_report_has_pass_report_terms),
+    test(pipe15_disabled_pass_skipped),
+    test(pipe15_applied_pass_status),
+    test(pipe15_semantic_annotation_pass),
+    test(pipe15_recurrence_detection_pass),
+    test(pipe15_simplification_removes_trivial),
+    test(pipe15_gaussian_pass_runs),
+    test(pipe15_full_run_sum),
+    test(pipe15_run_full_produces_neurocode),
+    test(pipe15_run_full_report_length),
+    test(pipe15_benchmark_returns_time),
+    test(pipe15_benchmark_time_nonnegative),
+    test(pipe15_pipeline_vs_optimiser),
+    test(pipe15_report_print_succeeds).
 
 test(Name) :-
     ( catch(run_test(Name), Error, (write('ERROR in '), write(Name), write(': '), write(Error), nl, fail))
@@ -2720,3 +2744,204 @@ run_test(ncm14_full_pipeline) :-
     member(pred_sig:sum14/2, Meta1),
     member(rebuild_version:1, Meta1),
     npl_ncm_clear.
+
+%% =====================================================================
+%% Stage 15: Optimiser Pipeline
+%% =====================================================================
+
+%% pipe15_pass_names_ordered — pass names list has exactly 11 entries in order
+run_test(pipe15_pass_names_ordered) :-
+    npl_pipeline_pass_names(Names),
+    Names = [semantic_annotation, simplification, recurrence_detection,
+             gaussian_elimination, recursion_to_loop,
+             subterm_address_conversion, nested_recursion_elimination,
+             memoisation_insertion, dict_learned_opt,
+             final_simplification, neurocode_emission],
+    length(Names, 11).
+
+%% pipe15_default_config_has_all_passes — default config has 11 pass entries
+run_test(pipe15_default_config_has_all_passes) :-
+    npl_pipeline_default_config(Config),
+    length(Config, 11).
+
+%% pipe15_default_all_enabled — all passes are enabled by default
+run_test(pipe15_default_all_enabled) :-
+    npl_pipeline_default_config(Config),
+    npl_pipeline_pass_names(Names),
+    maplist(npl_pipeline_is_enabled_in(Config), Names).
+
+npl_pipeline_is_enabled_in(Config, Name) :-
+    npl_pipeline_is_enabled(Name, Config).
+
+%% pipe15_enable_disable — enable/disable roundtrip works
+run_test(pipe15_enable_disable) :-
+    npl_pipeline_default_config(C0),
+    npl_pipeline_disable(simplification, C0, C1),
+    \+ npl_pipeline_is_enabled(simplification, C1),
+    npl_pipeline_enable(simplification, C1, C2),
+    npl_pipeline_is_enabled(simplification, C2).
+
+%% pipe15_is_enabled_true — enabled pass is detected
+run_test(pipe15_is_enabled_true) :-
+    npl_pipeline_default_config(Config),
+    npl_pipeline_is_enabled(gaussian_elimination, Config).
+
+%% pipe15_is_enabled_false — disabled pass is not detected
+run_test(pipe15_is_enabled_false) :-
+    npl_pipeline_default_config(C0),
+    npl_pipeline_disable(memoisation_insertion, C0, C1),
+    \+ npl_pipeline_is_enabled(memoisation_insertion, C1).
+
+%% pipe15_run_empty_ir — pipeline runs without error on empty IR
+run_test(pipe15_run_empty_ir) :-
+    npl_pipeline_default_config(Config),
+    npl_pipeline_run(Config, [], OptIR, Report),
+    OptIR == [],
+    is_list(Report).
+
+%% pipe15_run_report_length — report has 10 entries (one per IR-transform pass)
+run_test(pipe15_run_report_length) :-
+    npl_pipeline_default_config(Config),
+    npl_pipeline_run(Config, [], _, Report),
+    length(Report, 10).
+
+%% pipe15_report_has_pass_report_terms — every report entry is pass_report/3
+run_test(pipe15_report_has_pass_report_terms) :-
+    npl_pipeline_default_config(Config),
+    npl_pipeline_run(Config, [], _, Report),
+    maplist(is_pass_report, Report).
+
+is_pass_report(pass_report(_, _, _)).
+
+%% pipe15_disabled_pass_skipped — a disabled pass gets status skipped in report
+run_test(pipe15_disabled_pass_skipped) :-
+    npl_pipeline_default_config(C0),
+    npl_pipeline_disable(gaussian_elimination, C0, Config),
+    npl_pipeline_run(Config, [], _, Report),
+    member(pass_report(gaussian_elimination, skipped, _), Report).
+
+%% pipe15_applied_pass_status — an enabled pass on non-empty IR gets status applied
+run_test(pipe15_applied_pass_status) :-
+    npl_pipeline_default_config(Config),
+    npl_pipeline_run(Config,
+                     [ir_clause(fact15(a), ir_true, [])],
+                     _, Report),
+    member(pass_report(semantic_annotation, applied, _), Report).
+
+%% pipe15_semantic_annotation_pass — annotation pass reports recursion classes
+run_test(pipe15_semantic_annotation_pass) :-
+    npl_pipeline_default_config(C0),
+    npl_pipeline_disable(simplification,              C0, C1),
+    npl_pipeline_disable(recurrence_detection,        C1, C2),
+    npl_pipeline_disable(gaussian_elimination,        C2, C3),
+    npl_pipeline_disable(recursion_to_loop,           C3, C4),
+    npl_pipeline_disable(subterm_address_conversion,  C4, C5),
+    npl_pipeline_disable(nested_recursion_elimination,C5, C6),
+    npl_pipeline_disable(memoisation_insertion,       C6, C7),
+    npl_pipeline_disable(dict_learned_opt,            C7, C8),
+    npl_pipeline_disable(final_simplification,        C8, Config),
+    IR = [ir_clause(ann15(x), ir_true, [recursion_class:none])],
+    npl_pipeline_run(Config, IR, _, Report),
+    member(pass_report(semantic_annotation, applied, Info), Report),
+    member(ir_items:1, Info),
+    member(annotations:[ann15/1:rc(none)], Info).
+
+%% pipe15_recurrence_detection_pass — recurrence pass reports recurrences list
+run_test(pipe15_recurrence_detection_pass) :-
+    npl_pipeline_default_config(Config),
+    IR = [ir_clause(rd15(x), ir_true, [])],
+    npl_pipeline_run(Config, IR, _, Report),
+    member(pass_report(recurrence_detection, applied, Info), Report),
+    member(recurrences:_, Info).
+
+%% pipe15_simplification_removes_trivial — simplification collapses ir_seq(ir_true,B)
+run_test(pipe15_simplification_removes_trivial) :-
+    npl_pipeline_default_config(C0),
+    npl_pipeline_disable(recurrence_detection,        C0, C1),
+    npl_pipeline_disable(gaussian_elimination,        C1, C2),
+    npl_pipeline_disable(recursion_to_loop,           C2, C3),
+    npl_pipeline_disable(subterm_address_conversion,  C3, C4),
+    npl_pipeline_disable(nested_recursion_elimination,C4, C5),
+    npl_pipeline_disable(memoisation_insertion,       C5, C6),
+    npl_pipeline_disable(dict_learned_opt,            C6, C7),
+    npl_pipeline_disable(final_simplification,        C7, Config),
+    IR = [ir_clause(simp15(a), ir_seq(ir_true, ir_call(ok)), [])],
+    npl_pipeline_run(Config, IR, [ir_clause(simp15(a), OptBody, _)], _),
+    OptBody == ir_call(ok).
+
+%% pipe15_gaussian_pass_runs — gaussian elimination pass runs without error
+run_test(pipe15_gaussian_pass_runs) :-
+    npl_pipeline_default_config(C0),
+    npl_pipeline_disable(semantic_annotation,         C0, C1),
+    npl_pipeline_disable(simplification,              C1, C2),
+    npl_pipeline_disable(recurrence_detection,        C2, C3),
+    npl_pipeline_disable(recursion_to_loop,           C3, C4),
+    npl_pipeline_disable(subterm_address_conversion,  C4, C5),
+    npl_pipeline_disable(nested_recursion_elimination,C5, C6),
+    npl_pipeline_disable(memoisation_insertion,       C6, C7),
+    npl_pipeline_disable(dict_learned_opt,            C7, C8),
+    npl_pipeline_disable(final_simplification,        C8, Config),
+    IR = [ir_clause(gauss15(a), ir_true, [])],
+    npl_pipeline_run(Config, IR, OptIR, Report),
+    is_list(OptIR),
+    member(pass_report(gaussian_elimination, applied, _), Report).
+
+%% pipe15_full_run_sum — full pipeline run on sum predicate succeeds
+run_test(pipe15_full_run_sum) :-
+    npl_parse_string('sum15([], 0). sum15([H|T], S) :- sum15(T, S1), S is S1 + H.', AST),
+    npl_analyse(AST, AAST),
+    npl_intermediate(AAST, IR),
+    npl_pipeline_default_config(Config),
+    npl_pipeline_run(Config, IR, OptIR, Report),
+    is_list(OptIR),
+    length(Report, 10),
+    maplist(is_pass_report, Report).
+
+%% pipe15_run_full_produces_neurocode — run_full produces a non-empty neurocode list
+run_test(pipe15_run_full_produces_neurocode) :-
+    npl_parse_string('nc15(a). nc15(b) :- true.', AST),
+    npl_analyse(AST, AAST),
+    npl_intermediate(AAST, IR),
+    npl_pipeline_default_config(Config),
+    npl_pipeline_run_full(Config, IR, _OptIR, Neurocode, Report),
+    is_list(Neurocode),
+    Neurocode \= [],
+    length(Report, 11),
+    member(pass_report(neurocode_emission, applied, _), Report).
+
+%% pipe15_run_full_report_length — run_full report has 11 entries
+run_test(pipe15_run_full_report_length) :-
+    npl_pipeline_default_config(Config),
+    npl_pipeline_run_full(Config, [], _, _, Report),
+    length(Report, 11).
+
+%% pipe15_benchmark_returns_time — benchmark returns a numeric time
+run_test(pipe15_benchmark_returns_time) :-
+    npl_pipeline_default_config(Config),
+    npl_pipeline_benchmark(Config, [], Report, TimeMs),
+    is_list(Report),
+    number(TimeMs).
+
+%% pipe15_benchmark_time_nonnegative — benchmark time is >= 0
+run_test(pipe15_benchmark_time_nonnegative) :-
+    npl_pipeline_default_config(Config),
+    npl_pipeline_benchmark(Config, [], _Report, TimeMs),
+    TimeMs >= 0.
+
+%% pipe15_pipeline_vs_optimiser — pipeline output is equivalent to npl_optimise output
+run_test(pipe15_pipeline_vs_optimiser) :-
+    npl_parse_string('id15(X) :- true, X = a.', AST),
+    npl_analyse(AST, AAST),
+    npl_intermediate(AAST, IR),
+    npl_optimise(IR, OptIR1),
+    npl_pipeline_default_config(Config),
+    npl_pipeline_run(Config, IR, OptIR2, _),
+    npl_generate(OptIR1, NC1),
+    npl_generate(OptIR2, NC2),
+    NC1 == NC2.
+
+%% pipe15_report_print_succeeds — npl_pipeline_report_print/1 succeeds without error
+run_test(pipe15_report_print_succeeds) :-
+    npl_pipeline_default_config(Config),
+    npl_pipeline_run(Config, [], _, Report),
+    with_output_to(string(_), npl_pipeline_report_print(Report)).

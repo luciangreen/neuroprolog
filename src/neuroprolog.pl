@@ -17,6 +17,7 @@
 :- consult('src/semantic_analyser').
 :- consult('src/intermediate_codegen').
 :- consult('src/optimiser').
+:- consult('src/optimiser_pipeline').
 :- consult('src/codegen').
 :- consult('src/cognitive_markers').
 :- consult('src/memoisation').
