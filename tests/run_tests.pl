@@ -201,7 +201,23 @@ run_test_suite :-
     test(ir8_info_get_list),
     test(ir8_info_get_legacy),
     test(ir8_new_body_nodes_reversible),
-    test(ir8_full_pipeline).
+    test(ir8_full_pipeline),
+    % --- Stage 9: Gaussian-Recursion Reduction ---
+    test(gauss9_reducible_tail),
+    test(gauss9_reducible_accum_add),
+    test(gauss9_reducible_accum_mul),
+    test(gauss9_nonreducible),
+    test(gauss9_extract_tail),
+    test(gauss9_extract_accumulate),
+    test(gauss9_extract_none),
+    test(gauss9_gauss_eliminate_identity),
+    test(gauss9_gauss_eliminate_rank1),
+    test(gauss9_gauss_eliminate_triangular),
+    test(gauss9_build_coeff_matrix),
+    test(gauss9_reduce_clause_group_sum),
+    test(gauss9_reduce_clause_group_tail_unchanged),
+    test(gauss9_correctness_sum),
+    test(gauss9_correctness_length).
 
 test(Name) :-
     ( catch(run_test(Name), Error, (write('ERROR in '), write(Name), write(': '), write(Error), nl, fail))
@@ -1364,3 +1380,192 @@ run_test(ir8_full_pipeline) :-
     %% The recursive clause carries recursion class and optimisation hints
     last(FlatIR, ir_clause(_, _, LastInfo)),
     npl_ir_info_get(LastInfo, recursion_class, linear).
+
+%% =====================================================================
+%% Stage 9 tests — Gaussian-Recursion Reduction
+%% =====================================================================
+
+%% ----------------------------------------------------------------
+%% npl_is_reducible/2
+%% ----------------------------------------------------------------
+
+%% gauss9_reducible_tail — two-clause tail-recursive group is recognised
+run_test(gauss9_reducible_tail) :-
+    Group = [
+        ir_clause(count(0), ir_true, []),
+        ir_clause(count(_N), ir_seq(ir_call(foo), ir_call(count(_M))), [])
+    ],
+    npl_is_reducible(Group, linear_tail_recursion).
+
+%% gauss9_reducible_accum_add — additive linear accumulate group is recognised
+run_test(gauss9_reducible_accum_add) :-
+    Group = [
+        ir_clause(sum([], 0), ir_true, []),
+        ir_clause(sum([H|T], S),
+                  ir_seq(ir_call(sum(T, S1)), ir_call(is(S, '+'(S1, H)))),
+                  [])
+    ],
+    npl_is_reducible(Group, linear_accumulate('+', 0)).
+
+%% gauss9_reducible_accum_mul — multiplicative linear accumulate is recognised
+run_test(gauss9_reducible_accum_mul) :-
+    Group = [
+        ir_clause(prod([], 1), ir_true, []),
+        ir_clause(prod([H|T], P),
+                  ir_seq(ir_call(prod(T, P1)), ir_call(is(P, '*'(P1, H)))),
+                  [])
+    ],
+    npl_is_reducible(Group, linear_accumulate('*', 1)).
+
+%% gauss9_nonreducible — a single-clause predicate is not reducible
+run_test(gauss9_nonreducible) :-
+    Group = [ ir_clause(hello, ir_call(write(hi)), []) ],
+    \+ npl_is_reducible(Group, linear_tail_recursion),
+    \+ npl_is_reducible(Group, linear_accumulate(_, _)).
+
+%% ----------------------------------------------------------------
+%% npl_extract_recurrence/2
+%% ----------------------------------------------------------------
+
+%% gauss9_extract_tail — tail-recursive group extracts as linear_tail
+run_test(gauss9_extract_tail) :-
+    Group = [
+        ir_clause(count(0), ir_true, []),
+        ir_clause(count(_N),
+                  ir_seq(ir_call(cond), ir_call(count(_M))),
+                  [])
+    ],
+    npl_extract_recurrence(Group, Rec),
+    Rec = recurrence(count/1, linear_tail, _).
+
+%% gauss9_extract_accumulate — additive group extracts correct recurrence
+run_test(gauss9_extract_accumulate) :-
+    Group = [
+        ir_clause(sum([], 0), ir_true, []),
+        ir_clause(sum([H|T], S),
+                  ir_seq(ir_call(sum(T, S1)), ir_call(is(S, '+'(S1, H)))),
+                  [])
+    ],
+    npl_extract_recurrence(Group, Rec),
+    Rec = recurrence(sum/2, linear_accumulate, info(op:'+', identity:0, base:_)).
+
+%% gauss9_extract_none — unrecognised group gives recurrence/3 with none
+run_test(gauss9_extract_none) :-
+    Group = [ ir_clause(hello, ir_call(write(hi)), []) ],
+    npl_extract_recurrence(Group, Rec),
+    Rec = recurrence(hello/0, none, _).
+
+%% ----------------------------------------------------------------
+%% npl_gauss_eliminate/2
+%% ----------------------------------------------------------------
+
+%% gauss9_gauss_eliminate_identity — 2×2 identity stays in row echelon form
+run_test(gauss9_gauss_eliminate_identity) :-
+    M = [ [frac(1,1), frac(0,1)],
+          [frac(0,1), frac(1,1)] ],
+    npl_gauss_eliminate(M, E),
+    E = [ [frac(1,1), frac(0,1)],
+          [frac(0,1), frac(1,1)] ].
+
+%% gauss9_gauss_eliminate_rank1 — linearly dependent rows produce zero row
+run_test(gauss9_gauss_eliminate_rank1) :-
+    M = [ [frac(1,1), frac(2,1), frac(3,1)],
+          [frac(2,1), frac(4,1), frac(6,1)] ],
+    npl_gauss_eliminate(M, E),
+    E = [ [frac(1,1), frac(2,1), frac(3,1)],
+          [frac(0,1), frac(0,1), frac(0,1)] ].
+
+%% gauss9_gauss_eliminate_triangular — upper triangular matrix
+run_test(gauss9_gauss_eliminate_triangular) :-
+    M = [ [frac(2,1), frac(4,1)],
+          [frac(1,1), frac(3,1)] ],
+    npl_gauss_eliminate(M, E),
+    % After eliminating: row 2 becomes [0, 1] (or equivalent)
+    E = [ [frac(1,1), frac(2,1)],
+          [frac(0,1), frac(1,1)] ].
+
+%% ----------------------------------------------------------------
+%% npl_build_coefficient_matrix/2
+%% ----------------------------------------------------------------
+
+%% gauss9_build_coeff_matrix — 2-recurrence system builds a 2×2 diagonal matrix
+run_test(gauss9_build_coeff_matrix) :-
+    Recs = [
+        recurrence(f/1, linear_accumulate, info(op:'+', identity:0, base:_)),
+        recurrence(g/1, linear_accumulate, info(op:'+', identity:0, base:_))
+    ],
+    npl_build_coefficient_matrix(Recs, Matrix),
+    Matrix = [ [frac(1,1), frac(0,1)],
+               [frac(0,1), frac(1,1)] ].
+
+%% ----------------------------------------------------------------
+%% npl_reduce_clause_group/2
+%% ----------------------------------------------------------------
+
+%% gauss9_reduce_clause_group_sum — additive group is rewritten to 3 acc clauses
+run_test(gauss9_reduce_clause_group_sum) :-
+    Group = [
+        ir_clause(sum([], 0), ir_true, []),
+        ir_clause(sum([H|T], S),
+                  ir_seq(ir_call(sum(T, S1)), ir_call(is(S, '+'(S1, H)))),
+                  [])
+    ],
+    npl_reduce_clause_group(Group, Reduced),
+    %% Must produce 3 clauses (wrapper + acc base + acc step)
+    length(Reduced, 3),
+    %% Wrapper: sum/2 calling sum_gauss_acc/3
+    Reduced = [ir_clause(WrapperHead, ir_call(WrapperBodyGoal), _)|_],
+    functor(WrapperHead, sum, 2),
+    functor(WrapperBodyGoal, sum_gauss_acc, 3),
+    %% Acc base: sum_gauss_acc/3 with ir_true body
+    Reduced = [_, ir_clause(AccBaseHead, ir_true, _)|_],
+    functor(AccBaseHead, sum_gauss_acc, 3),
+    %% Acc step: sum_gauss_acc/3 with is/2 + recursive call
+    last(Reduced, ir_clause(AccStepHead, ir_seq(ir_call(is(_,_)), ir_call(AccRecursiveCall)), _)),
+    functor(AccStepHead,      sum_gauss_acc, 3),
+    functor(AccRecursiveCall, sum_gauss_acc, 3).
+
+%% gauss9_reduce_clause_group_tail_unchanged — tail-recursive group is unchanged
+run_test(gauss9_reduce_clause_group_tail_unchanged) :-
+    Group = [
+        ir_clause(count(0), ir_true, []),
+        ir_clause(count(_N), ir_seq(ir_call(foo), ir_call(count(_M))), [])
+    ],
+    npl_reduce_clause_group(Group, Reduced),
+    Reduced == Group.
+
+%% ----------------------------------------------------------------
+%% Correctness: original recursive ≡ accumulator form (via interpreter)
+%% ----------------------------------------------------------------
+
+%% gauss9_correctness_sum — recursive sum and accumulator sum agree
+run_test(gauss9_correctness_sum) :-
+    npl_interp_reset,
+    %% Original non-tail-recursive sum
+    npl_interp_assert((g9_orig_sum([], 0))),
+    npl_interp_assert((g9_orig_sum([H|T], S) :- g9_orig_sum(T, S1), S is S1 + H)),
+    %% Accumulator form
+    npl_interp_assert((g9_acc_sum(L, S) :- g9_acc_sum_h(L, 0, S))),
+    npl_interp_assert((g9_acc_sum_h([], Acc, Acc))),
+    npl_interp_assert((g9_acc_sum_h([H|T], Acc, S) :- Acc1 is Acc + H, g9_acc_sum_h(T, Acc1, S))),
+    %% Both produce the same result
+    npl_interp_query_all(g9_orig_sum([1,2,3,4], S),   S, [10]),
+    npl_interp_query_all(g9_acc_sum([1,2,3,4],  S),   S, [10]),
+    npl_interp_query_all(g9_orig_sum([], Z),           Z, [0]),
+    npl_interp_query_all(g9_acc_sum([],  Z),           Z, [0]).
+
+%% gauss9_correctness_length — recursive length and accumulator length agree
+run_test(gauss9_correctness_length) :-
+    npl_interp_reset,
+    %% Original non-tail-recursive length
+    npl_interp_assert((g9_orig_len([], 0))),
+    npl_interp_assert((g9_orig_len([_|T], N) :- g9_orig_len(T, N1), N is N1 + 1)),
+    %% Accumulator form
+    npl_interp_assert((g9_acc_len(L, N) :- g9_acc_len_h(L, 0, N))),
+    npl_interp_assert((g9_acc_len_h([], Acc, Acc))),
+    npl_interp_assert((g9_acc_len_h([_|T], Acc, N) :- Acc1 is Acc + 1, g9_acc_len_h(T, Acc1, N))),
+    %% Both produce the same result
+    npl_interp_query_all(g9_orig_len([a,b,c,d,e], N), N, [5]),
+    npl_interp_query_all(g9_acc_len([a,b,c,d,e],  N), N, [5]),
+    npl_interp_query_all(g9_orig_len([], Z),            Z, [0]),
+    npl_interp_query_all(g9_acc_len([],  Z),            Z, [0]).
