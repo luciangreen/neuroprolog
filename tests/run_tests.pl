@@ -15,6 +15,7 @@
 :- consult('src/gaussian_recursion').
 :- consult('src/subterm_addressing').
 :- consult('src/optimiser').
+:- consult('src/nested_recursion').
 :- consult('src/codegen').
 :- consult('src/control').
 :- consult('src/wam_model').
@@ -234,7 +235,31 @@ run_test_suite :-
     test(subterm10_pass_eligible_loop_candidate),
     test(subterm10_pass_preserves_source_marker),
     test(subterm10_pass_ir_addr_loop_sig),
-    test(subterm10_addresses_bfs_order).
+    test(subterm10_addresses_bfs_order),
+    % --- Stage 11: Nested Recursion Elimination ---
+    test(nested11_count_zero),
+    test(nested11_count_one),
+    test(nested11_count_two),
+    test(nested11_classify_opaque_linear),
+    test(nested11_classify_pure),
+    test(nested11_classify_structural),
+    test(nested11_classify_data_fold),
+    test(nested11_classify_opaque_side_effect),
+    test(nested11_pure_body_pure),
+    test(nested11_pure_body_impure),
+    test(nested11_transform_pure_memo),
+    test(nested11_transform_structural_loop),
+    test(nested11_transform_opaque_unchanged),
+    test(nested11_simplify_seq_true_left),
+    test(nested11_simplify_seq_true_right),
+    test(nested11_simplify_nested_seq),
+    test(nested11_simplify_noop),
+    test(nested11_unfold_data_call),
+    test(nested11_unfold_data_seq),
+    test(nested11_pass_linear_unchanged),
+    test(nested11_pass_pure_nested),
+    test(nested11_pass_structural_nested),
+    test(nested11_pass_empty_ir).
 
 test(Name) :-
     ( catch(run_test(Name), Error, (write('ERROR in '), write(Name), write(': '), write(Error), nl, fail))
@@ -1685,3 +1710,249 @@ run_test(subterm10_addresses_bfs_order) :-
     npl_subterm_addresses(f(g(a), b), Addrs),
     %% BFS: root, then [1],[2], then [1,1]
     Addrs == [[], [1], [2], [1,1]].
+
+%% =====================================================================
+%% Stage 11 tests — Nested Recursion Elimination
+%% =====================================================================
+
+%% ----------------------------------------------------------------
+%% npl_ir_count_rec_calls/4
+%% ----------------------------------------------------------------
+
+%% nested11_count_zero — base clause body has no recursive calls
+run_test(nested11_count_zero) :-
+    npl_ir_count_rec_calls(fib, 2, ir_true, N),
+    N =:= 0.
+
+%% nested11_count_one — linear step body has exactly one recursive call
+run_test(nested11_count_one) :-
+    Body = ir_seq(ir_call(fib(0, _)), ir_call(is(_, 0))),
+    npl_ir_count_rec_calls(fib, 2, Body, N),
+    N =:= 1.
+
+%% nested11_count_two — nested step body has exactly two recursive calls
+run_test(nested11_count_two) :-
+    Body = ir_seq(ir_call(fib(a, _R1)), ir_call(fib(b, _R2))),
+    npl_ir_count_rec_calls(fib, 2, Body, N),
+    N =:= 2.
+
+%% ----------------------------------------------------------------
+%% npl_nested_classify/2
+%% ----------------------------------------------------------------
+
+%% nested11_classify_opaque_linear — single-recursive group is opaque
+run_test(nested11_classify_opaque_linear) :-
+    Group = [
+        ir_clause(len([], 0), ir_true, []),
+        ir_clause(len([_|T], N),
+                  ir_seq(ir_call(len(T, _N1)), ir_call(is(N, _N1+1))),
+                  [])
+    ],
+    npl_nested_classify(Group, Class),
+    Class = nested_opaque.
+
+%% nested11_classify_pure — two recursive calls, no side effects, no
+%% compound-constructor arg and no binary combining is → nested_pure
+run_test(nested11_classify_pure) :-
+    Group = [
+        ir_clause(rep(0, a), ir_true, []),
+        ir_clause(rep(_N, R),
+                  ir_seq(ir_call(rep(_N, T)), ir_call(rep(T, R))),
+                  [])
+    ],
+    npl_nested_classify(Group, Class),
+    Class = nested_pure.
+
+%% nested11_classify_structural — compound-constructor first arg + 2 rec calls
+run_test(nested11_classify_structural) :-
+    Group = [
+        ir_clause(tree_sum(leaf(_X), _X), ir_true, []),
+        ir_clause(tree_sum(node(_L, _R), _S),
+                  ir_seq(ir_call(tree_sum(_L, _SL)),
+                         ir_seq(ir_call(tree_sum(_R, _SR)),
+                                ir_call(is(_S, _SL + _SR)))),
+                  [])
+    ],
+    npl_nested_classify(Group, Class),
+    Class = nested_structural.
+
+%% nested11_classify_data_fold — two rec calls + binary combining is/2
+run_test(nested11_classify_data_fold) :-
+    Group = [
+        ir_clause(fib(0, 0), ir_true, []),
+        ir_clause(fib(1, 1), ir_true, []),
+        ir_clause(fib(_N, _R),
+                  ir_seq(ir_call(is(_N1, _N - 1)),
+                         ir_seq(ir_call(fib(_N1, _R1)),
+                                ir_seq(ir_call(is(_N2, _N - 2)),
+                                       ir_seq(ir_call(fib(_N2, _R2)),
+                                              ir_call(is(_R, '+'(_R1, _R2))))))),
+                  [])
+    ],
+    npl_nested_classify(Group, Class),
+    Class = nested_data_fold('+').
+
+%% nested11_classify_opaque_side_effect — side-effecting group is opaque
+run_test(nested11_classify_opaque_side_effect) :-
+    Group = [
+        ir_clause(bar(0), ir_true, []),
+        ir_clause(bar(_N),
+                  ir_seq(ir_call(write(_N)),
+                         ir_seq(ir_call(bar(_N1)), ir_call(bar(_N1)))),
+                  [])
+    ],
+    npl_nested_classify(Group, Class),
+    Class = nested_opaque.
+
+%% ----------------------------------------------------------------
+%% npl_ir_body_pure/3
+%% ----------------------------------------------------------------
+
+%% nested11_pure_body_pure — body with is/2 and recursive call is pure
+run_test(nested11_pure_body_pure) :-
+    Body = ir_seq(ir_call(fib(0, _R1)), ir_seq(ir_call(fib(1, _R2)),
+                  ir_call(is(_R, _R1 + _R2)))),
+    npl_ir_body_pure(fib, 2, Body).
+
+%% nested11_pure_body_impure — body with write/1 is not pure
+run_test(nested11_pure_body_impure) :-
+    Body = ir_seq(ir_call(write(hello)), ir_call(fib(0, _))),
+    \+ npl_ir_body_pure(fib, 2, Body).
+
+%% ----------------------------------------------------------------
+%% npl_nested_apply_transform/3
+%% ----------------------------------------------------------------
+
+%% nested11_transform_pure_memo — pure transform wraps step body in ir_memo_site
+run_test(nested11_transform_pure_memo) :-
+    Group = [
+        ir_clause(rep(0, a), ir_true, []),
+        ir_clause(rep(N, R),
+                  ir_seq(ir_call(rep(N, T)), ir_call(rep(T, R))),
+                  [])
+    ],
+    npl_nested_apply_transform(Group, nested_pure, Reduced),
+    %% Base clause must be unchanged
+    Reduced = [ir_clause(rep(0, a), ir_true, [])|Rest],
+    %% Step clause body must be wrapped
+    Rest = [ir_clause(rep(N, R), ir_memo_site(rep(N, R), _StepBody), [])],
+    %% The wrapped body must contain the original recursive calls
+    Rest = [ir_clause(_, ir_memo_site(_, WrappedBody), _)],
+    WrappedBody = ir_seq(ir_call(rep(N, _T)), ir_call(rep(_T, R))).
+
+%% nested11_transform_structural_loop — structural transform wraps step in
+%% ir_loop_candidate; base clause is unchanged
+run_test(nested11_transform_structural_loop) :-
+    Group = [
+        ir_clause(tree_sum(leaf(X), X), ir_true, []),
+        ir_clause(tree_sum(node(L, R), S),
+                  ir_seq(ir_call(tree_sum(L, SL)),
+                         ir_seq(ir_call(tree_sum(R, SR)),
+                                ir_call(is(S, SL + SR)))),
+                  [])
+    ],
+    npl_nested_apply_transform(Group, nested_structural, Reduced),
+    %% Base clause unchanged
+    Reduced = [ir_clause(tree_sum(leaf(_), _), ir_true, [])|_],
+    %% Step clause body is a loop candidate
+    last(Reduced, ir_clause(tree_sum(node(_,_), _), ir_loop_candidate(_), [])).
+
+%% nested11_transform_opaque_unchanged — opaque class falls through (no transform)
+run_test(nested11_transform_opaque_unchanged) :-
+    Group = [
+        ir_clause(len([], 0), ir_true, []),
+        ir_clause(len([_|T], N),
+                  ir_seq(ir_call(len(T, _N1)), ir_call(is(N, _N1 + 1))),
+                  [])
+    ],
+    %% No transform is defined for nested_opaque; full pass preserves group
+    npl_nested_eliminate_pass(Group, OptIR),
+    OptIR == Group.
+
+%% ----------------------------------------------------------------
+%% npl_nr_simplify_body/2
+%% ----------------------------------------------------------------
+
+%% nested11_simplify_seq_true_left — ir_seq(ir_true, X) reduces to X
+run_test(nested11_simplify_seq_true_left) :-
+    npl_nr_simplify_body(ir_seq(ir_true, ir_call(foo)), Result),
+    Result = ir_call(foo).
+
+%% nested11_simplify_seq_true_right — ir_seq(X, ir_true) reduces to X
+run_test(nested11_simplify_seq_true_right) :-
+    npl_nr_simplify_body(ir_seq(ir_call(foo), ir_true), Result),
+    Result = ir_call(foo).
+
+%% nested11_simplify_nested_seq — simplification recurses into nested seq
+run_test(nested11_simplify_nested_seq) :-
+    npl_nr_simplify_body(
+        ir_seq(ir_call(a), ir_seq(ir_true, ir_call(b))),
+        Result),
+    Result = ir_seq(ir_call(a), ir_call(b)).
+
+%% nested11_simplify_noop — non-trivial body is left unchanged
+run_test(nested11_simplify_noop) :-
+    Body = ir_seq(ir_call(a), ir_call(b)),
+    npl_nr_simplify_body(Body, Result),
+    Result == Body.
+
+%% ----------------------------------------------------------------
+%% npl_nr_unfold_data/2
+%% ----------------------------------------------------------------
+
+%% nested11_unfold_data_call — ir_call is preserved
+run_test(nested11_unfold_data_call) :-
+    npl_nr_unfold_data(ir_call(foo(1)), Result),
+    Result = ir_call(foo(1)).
+
+%% nested11_unfold_data_seq — unfold recurses into ir_seq
+run_test(nested11_unfold_data_seq) :-
+    npl_nr_unfold_data(ir_seq(ir_call(a), ir_call(b)), Result),
+    Result = ir_seq(ir_call(a), ir_call(b)).
+
+%% ----------------------------------------------------------------
+%% npl_nested_eliminate_pass/2
+%% ----------------------------------------------------------------
+
+%% nested11_pass_linear_unchanged — a linear-recursive IR list is not modified
+run_test(nested11_pass_linear_unchanged) :-
+    IR = [
+        ir_clause(len([], 0), ir_true, []),
+        ir_clause(len([_|T], N),
+                  ir_seq(ir_call(len(T, _N1)), ir_call(is(N, _N1 + 1))),
+                  [])
+    ],
+    npl_nested_eliminate_pass(IR, OptIR),
+    OptIR == IR.
+
+%% nested11_pass_pure_nested — a pure nested predicate gets step body wrapped
+%% in ir_memo_site by the elimination pass
+run_test(nested11_pass_pure_nested) :-
+    IR = [
+        ir_clause(rep(0, a), ir_true, []),
+        ir_clause(rep(N, R),
+                  ir_seq(ir_call(rep(N, _T)), ir_call(rep(_T, R))),
+                  [])
+    ],
+    npl_nested_eliminate_pass(IR, OptIR),
+    OptIR = [ir_clause(rep(0, a), ir_true, []),
+             ir_clause(rep(N, R), ir_memo_site(rep(N, R), _), [])].
+
+%% nested11_pass_structural_nested — a structural nested predicate gets step
+%% body wrapped in ir_loop_candidate
+run_test(nested11_pass_structural_nested) :-
+    IR = [
+        ir_clause(tree_sum(leaf(X), X), ir_true, []),
+        ir_clause(tree_sum(node(L, R), S),
+                  ir_seq(ir_call(tree_sum(L, _SL)),
+                         ir_seq(ir_call(tree_sum(R, _SR)),
+                                ir_call(is(S, _SL + _SR)))),
+                  [])
+    ],
+    npl_nested_eliminate_pass(IR, OptIR),
+    OptIR = [ir_clause(tree_sum(leaf(_), _), ir_true, []),
+             ir_clause(tree_sum(node(_, _), _), ir_loop_candidate(_), [])].
+
+%% nested11_pass_empty_ir — empty IR passes through unchanged
+run_test(nested11_pass_empty_ir) :-
+    npl_nested_eliminate_pass([], []).
