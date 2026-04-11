@@ -18,6 +18,7 @@
 :- consult('src/intermediate_codegen').
 :- consult('src/optimiser').
 :- consult('src/codegen').
+:- consult('src/cognitive_markers').
 :- consult('src/memoisation').
 :- consult('src/gaussian_recursion').
 :- consult('src/subterm_addressing').
