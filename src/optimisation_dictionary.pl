@@ -385,7 +385,7 @@ npl_opt_entry(arg_descent_to_addr_loop,
                    functor_is_not_arg ],
       perf_notes:'Replaces O(depth)-stack recursion with O(1) iterative address stepping',
       cognitive_marker:'loop:addr',
-      examples:[ example(walk(T) :- arg(_,T,S), walk(S), ir_addr_loop_form) ],
+      examples:[ example('walk(T) :- arg(_,T,S), walk(S)', ir_addr_loop_form) ],
       version:1 ]).
 
 %%====================================================================
@@ -411,15 +411,18 @@ npl_opt_register(Name, Pattern, Replacement) :-
     ; assertz(npl_opt_rule(Name, Pattern, Replacement))
     ).
 
+%% npl_opt_entry_retract_if_exists/1
+%  Internal helper: retract any existing npl_opt_entry/2 for Name.
+npl_opt_entry_retract_if_exists(Name) :-
+    ( npl_opt_entry(Name, _) -> retract(npl_opt_entry(Name, _)) ; true ).
+
 %% npl_opt_entry_register/2
 %  Register a new rich optimisation entry.  Replaces any existing entry
-%  with the same name.  Also registers a corresponding npl_opt_rule/3
-%  if trigger and transformed fields can be projected to a rule pair.
+%  with the same name.  Also refreshes any npl_opt_rule/3 with the same
+%  name if one already exists (note: this requires the rule to have been
+%  registered separately; npl_opt_entry_to_rule/3 looks up existing rules).
 npl_opt_entry_register(Name, Fields) :-
-    ( npl_opt_entry(Name, _) ->
-        retract(npl_opt_entry(Name, _))
-    ; true
-    ),
+    npl_opt_entry_retract_if_exists(Name),
     assertz(npl_opt_entry(Name, Fields)),
     ( npl_opt_entry_to_rule(Name, Pattern, Replacement) ->
         npl_opt_register(Name, Pattern, Replacement)
@@ -503,7 +506,7 @@ npl_opt_dict_read_terms(Stream) :-
     ).
 
 npl_opt_dict_assert_term(npl_opt_entry(Name, Fields)) :- !,
-    ( npl_opt_entry(Name, _) -> retract(npl_opt_entry(Name, _)) ; true ),
+    npl_opt_entry_retract_if_exists(Name),
     assertz(npl_opt_entry(Name, Fields)).
 npl_opt_dict_assert_term(npl_opt_rule(Name, Pat, Rep)) :- !,
     npl_opt_register(Name, Pat, Rep).
