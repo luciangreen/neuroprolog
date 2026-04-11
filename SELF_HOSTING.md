@@ -46,10 +46,31 @@ Recognised marker types:
 - `recursion_reduced` — Gaussian elimination has been applied.
 - `unfolded` — data unfolding has been applied.
 
+## Invariant 6: Rebuild Instructions Must Not Be Discarded
+
+The files `REBUILDING.md` and `SELF_HOSTING.md` — and any rebuild scripts
+they reference — must never be removed or emptied.  Future updates depend
+on these instructions to maintain self-optimisation across generations.
+
+Any commit that deletes or substantially empties these files without
+replacing them with equivalent content must be rejected during code review.
+
+## Invariant 7: Learned Optimisations Must Not Be Silently Discarded
+
+No rebuild may remove entries from `src/optimisation_dictionary.pl`
+without:
+
+1. Detecting the loss (via `rebuild_guard/0`).
+2. Logging the loss with a reason and timestamp to
+   `optimisations/rebuild_log.txt`.
+3. Passing the `--approve-opt-loss` flag to the build script.
+
+Silent loss of validated optimisations is a build failure, not a warning.
+
 ## Checking Self-Hosting
 
 ```sh
 swipl -g "consult('src/self_host')" -g "check_self_hosting" -t halt
 ```
 
-This verifies all five invariants above.
+This verifies all seven invariants above.
