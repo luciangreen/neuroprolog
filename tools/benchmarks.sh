@@ -35,7 +35,7 @@ while [ $# -gt 0 ]; do
             shift 2
             ;;
         -h|--help)
-            sed -n '2,22p' "$0" | sed 's/^# *//'
+            sed -n '2,19p' "$0" | sed 's/^# *//'
             exit 0
             ;;
         *)
@@ -178,8 +178,8 @@ BENCH3_GOAL="
     forall(between(1, Iters, _), npl_memo_check(fib_b3(10, _), _)),
     get_time(T1_warm),
     Warm_ms is (T1_warm - T0_warm) * 1000,
-    format('  Cold (first ${ITERS} calls) : ~4f ms total (~4f ms/iter)~n',
-           [Cold_ms, Cold_ms / Iters]),
+    format('  Cold (~w calls) : ~4f ms total (~4f ms/iter)~n',
+           [Iters, Cold_ms, Cold_ms / Iters]),
     format('  Warm (cache hits)        : ~4f ms total (~4f ms/iter)~n',
            [Warm_ms, Warm_ms / Iters])
 "
