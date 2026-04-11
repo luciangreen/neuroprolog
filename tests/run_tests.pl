@@ -217,7 +217,24 @@ run_test_suite :-
     test(gauss9_reduce_clause_group_sum),
     test(gauss9_reduce_clause_group_tail_unchanged),
     test(gauss9_correctness_sum),
-    test(gauss9_correctness_length).
+    test(gauss9_correctness_length),
+    % --- Stage 10: Subterm Address Looping ---
+    test(subterm10_addr_bounded_depth0),
+    test(subterm10_addr_bounded_depth1),
+    test(subterm10_addr_bounded_depth2),
+    test(subterm10_addr_bounded_terminates),
+    test(subterm10_iter_bounded_collect),
+    test(subterm10_addr_copy_atom),
+    test(subterm10_addr_copy_compound),
+    test(subterm10_addr_copy_nested),
+    test(subterm10_flatten_atom),
+    test(subterm10_flatten_list),
+    test(subterm10_flatten_nested),
+    test(subterm10_pass_ineligible_unchanged),
+    test(subterm10_pass_eligible_loop_candidate),
+    test(subterm10_pass_preserves_source_marker),
+    test(subterm10_pass_ir_addr_loop_sig),
+    test(subterm10_addresses_bfs_order).
 
 test(Name) :-
     ( catch(run_test(Name), Error, (write('ERROR in '), write(Name), write(': '), write(Error), nl, fail))
@@ -1569,3 +1586,102 @@ run_test(gauss9_correctness_length) :-
     npl_interp_query_all(g9_acc_len([a,b,c,d,e],  N), N, [5]),
     npl_interp_query_all(g9_orig_len([], Z),            Z, [0]),
     npl_interp_query_all(g9_acc_len([],  Z),            Z, [0]).
+
+%% =====================================================================
+%% Stage 10 tests — Subterm Address Looping
+%% =====================================================================
+
+%% subterm10_addr_bounded_depth0 — depth 0 yields only the root address
+run_test(subterm10_addr_bounded_depth0) :-
+    npl_subterm_addr_bounded(f(a, g(b, c)), 0, Addrs),
+    Addrs == [[]].
+
+%% subterm10_addr_bounded_depth1 — depth 1 yields root + immediate children
+run_test(subterm10_addr_bounded_depth1) :-
+    npl_subterm_addr_bounded(f(a, g(b, c)), 1, Addrs),
+    Addrs == [[], [1], [2]].
+
+%% subterm10_addr_bounded_depth2 — depth 2 descends two levels
+run_test(subterm10_addr_bounded_depth2) :-
+    npl_subterm_addr_bounded(f(a, g(b, c)), 2, Addrs),
+    Addrs == [[], [1], [2], [2,1], [2,2]].
+
+%% subterm10_addr_bounded_terminates — enumeration terminates for an atom
+run_test(subterm10_addr_bounded_terminates) :-
+    npl_subterm_addr_bounded(hello, 100, Addrs),
+    Addrs == [[]].
+
+%% subterm10_iter_bounded_collect — iterator visits all bounded addresses
+run_test(subterm10_iter_bounded_collect) :-
+    %% Use npl_subterm_addr_bounded to enumerate addresses, then verify count
+    npl_subterm_addr_bounded(f(a, b), 1, Addrs),
+    length(Addrs, N),
+    N == 3,           %% root, [1], [2]
+    Addrs == [[], [1], [2]].
+
+%% subterm10_addr_copy_atom — copying an atom gives an equal atom
+run_test(subterm10_addr_copy_atom) :-
+    npl_addr_copy_term(hello, Copy),
+    Copy == hello.
+
+%% subterm10_addr_copy_compound — copying a compound gives a structurally equal term
+run_test(subterm10_addr_copy_compound) :-
+    npl_addr_copy_term(f(1, 2, 3), Copy),
+    Copy == f(1, 2, 3).
+
+%% subterm10_addr_copy_nested — copying a nested compound is correct
+run_test(subterm10_addr_copy_nested) :-
+    npl_addr_copy_term(foo(bar(1, 2), baz(3)), Copy),
+    Copy == foo(bar(1, 2), baz(3)).
+
+%% subterm10_flatten_atom — flattening an atom gives a singleton list
+run_test(subterm10_flatten_atom) :-
+    npl_subterm_flatten_by_addr(hello, Leaves),
+    Leaves == [hello].
+
+%% subterm10_flatten_list — flattening a list gives its atomic elements
+run_test(subterm10_flatten_list) :-
+    npl_subterm_flatten_by_addr(f(a, b, c), Leaves),
+    Leaves == [a, b, c].
+
+%% subterm10_flatten_nested — flattening a nested term gives all leaves in BFS order
+run_test(subterm10_flatten_nested) :-
+    %% foo(bar(1, 2), 3): BFS leaf addresses are [2],[1,1],[1,2] → values 3, 1, 2
+    npl_subterm_flatten_by_addr(foo(bar(1, 2), 3), Leaves),
+    Leaves == [3, 1, 2].
+
+%% subterm10_pass_ineligible_unchanged — a plain ir_call is not rewritten
+run_test(subterm10_pass_ineligible_unchanged) :-
+    IR = [ir_clause(test, ir_call(foo), [])],
+    npl_subterm_address_pass(IR, OptIR),
+    OptIR == IR.
+
+%% subterm10_pass_eligible_loop_candidate — an ir_loop_candidate with an
+%% arg/3 descent pattern is rewritten to ir_addr_loop
+run_test(subterm10_pass_eligible_loop_candidate) :-
+    Sub = sub,
+    Body = ir_seq(ir_call(arg(1, term_var, Sub)), ir_call(traverse(Sub))),
+    IR = [ir_clause(h, ir_loop_candidate(Body), [])],
+    npl_subterm_address_pass(IR, OptIR),
+    OptIR = [ir_clause(h, ir_addr_loop(term_var, traverse/1, Body), [])].
+
+%% subterm10_pass_preserves_source_marker — source marker is threaded through
+run_test(subterm10_pass_preserves_source_marker) :-
+    IR = [ir_clause(h, ir_source_marker(pos(1,1), ir_call(foo)), [pos(1,1)])],
+    npl_subterm_address_pass(IR, OptIR),
+    OptIR = [ir_clause(h, ir_source_marker(pos(1,1), ir_call(foo)), [pos(1,1)])].
+
+%% subterm10_pass_ir_addr_loop_sig — the rewritten node carries the correct
+%% functor/arity signature of the recursive descent call
+run_test(subterm10_pass_ir_addr_loop_sig) :-
+    Sub = s,
+    Body = ir_seq(ir_call(arg(2, tv, Sub)), ir_call(descend(Sub, acc))),
+    IR = [ir_clause(p, ir_loop_candidate(Body), [])],
+    npl_subterm_address_pass(IR, OptIR),
+    OptIR = [ir_clause(p, ir_addr_loop(tv, descend/2, Body), [])].
+
+%% subterm10_addresses_bfs_order — npl_subterm_addresses returns BFS order
+run_test(subterm10_addresses_bfs_order) :-
+    npl_subterm_addresses(f(g(a), b), Addrs),
+    %% BFS: root, then [1],[2], then [1,1]
+    Addrs == [[], [1], [2], [1,1]].
