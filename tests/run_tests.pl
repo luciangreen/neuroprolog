@@ -302,7 +302,28 @@ run_test_suite :-
     test(pcorr12_all),
     test(pcorr12_clear),
     test(pcorr12_record_ir),
-    test(pcorr12_ir_report).
+    test(pcorr12_ir_report),
+    % --- Stage 13: Optimisation Dictionary ---
+    test(dict13_entry_lookup),
+    test(dict13_field_access),
+    test(dict13_all_categories),
+    test(dict13_entry_has_all_fields),
+    test(dict13_register_entry),
+    test(dict13_register_entry_replaces_existing),
+    test(dict13_rule_preserved_after_register),
+    test(dict13_entry_count_covers_categories),
+    test(dict13_algebraic_rule_add_zero),
+    test(dict13_algebraic_rule_mul_one),
+    test(dict13_algebraic_rule_mul_zero),
+    test(dict13_save_load_roundtrip),
+    test(dict13_load_replaces_duplicate),
+    test(dict13_entry_to_rule_projection),
+    test(dict13_entry_version_field),
+    test(dict13_entry_examples_field),
+    test(dict13_entry_cognitive_marker_field),
+    test(dict13_memoisation_entry_present),
+    test(dict13_gaussian_entry_present),
+    test(dict13_subterm_entry_present).
 
 test(Name) :-
     ( catch(run_test(Name), Error, (write('ERROR in '), write(Name), write(': '), write(Error), nl, fail))
@@ -2287,3 +2308,194 @@ run_test(pcorr12_ir_report) :-
     % fib/1 appears twice → in report; other/1 appears once → not in report
     member(repeated(pat(fib, [pat(number)]), 2), Report),
     \+ member(repeated(pat(other, _), _), Report).
+
+%%====================================================================
+%% Stage 13: Optimisation Dictionary
+%%====================================================================
+
+%% dict13_entry_lookup — rich entries are accessible by name
+run_test(dict13_entry_lookup) :-
+    npl_opt_entry_lookup(identity, entry(identity, Fields)),
+    is_list(Fields).
+
+%% dict13_field_access — npl_opt_entry_field/3 retrieves named fields
+run_test(dict13_field_access) :-
+    npl_opt_entry(identity, Fields),
+    npl_opt_entry_field(Fields, category, simplification),
+    npl_opt_entry_field(Fields, proof, call_true_identity),
+    npl_opt_entry_field(Fields, version, 1).
+
+%% dict13_all_categories — all nine required categories are represented
+run_test(dict13_all_categories) :-
+    Required = [ memoisation, simplification, recursion_elimination,
+                 loop_conversion, accumulator_introduction, constant_folding,
+                 algebraic_reduction, gaussian_transform,
+                 subterm_address_iteration ],
+    findall(Cat,
+            ( npl_opt_entry(_, Fields),
+              member(category:Cat, Fields) ),
+            Cats),
+    sort(Cats, CatsSet),
+    forall(member(R, Required), member(R, CatsSet)).
+
+%% dict13_entry_has_all_fields — every entry contains all required schema fields
+run_test(dict13_entry_has_all_fields) :-
+    Required = [ category, trigger, original, transformed, proof,
+                 conditions, perf_notes, cognitive_marker, examples, version ],
+    forall(
+        npl_opt_entry(_Name, Fields),
+        forall(member(Key, Required),
+               ( member(Key:_, Fields) ->
+                   true
+               ; format('Missing field ~w in entry~n', [Key]), fail
+               ))
+    ).
+
+%% dict13_register_entry — a newly registered entry is retrievable
+run_test(dict13_register_entry) :-
+    Name = dict13_test_entry,
+    Fields = [ category:simplification,
+               trigger:ir_call(test_goal),
+               original:'test original',
+               transformed:'test transformed',
+               proof:test_proof,
+               conditions:[test_cond],
+               perf_notes:'test perf',
+               cognitive_marker:none,
+               examples:[example(x, y)],
+               version:1 ],
+    npl_opt_entry_register(Name, Fields),
+    npl_opt_entry(Name, Stored),
+    Stored == Fields,
+    retract(npl_opt_entry(Name, _)).  % clean up
+
+%% dict13_register_entry_replaces_existing — re-registering replaces the entry
+run_test(dict13_register_entry_replaces_existing) :-
+    Name = dict13_replace_test,
+    Fields1 = [ category:simplification, trigger:t1, original:o1,
+                transformed:t1, proof:p1, conditions:[], perf_notes:'',
+                cognitive_marker:none, examples:[], version:1 ],
+    Fields2 = [ category:simplification, trigger:t2, original:o2,
+                transformed:t2, proof:p2, conditions:[], perf_notes:'',
+                cognitive_marker:none, examples:[], version:2 ],
+    npl_opt_entry_register(Name, Fields1),
+    npl_opt_entry_register(Name, Fields2),
+    findall(F, npl_opt_entry(Name, F), All),
+    length(All, 1),
+    All = [Stored],
+    Stored == Fields2,
+    retract(npl_opt_entry(Name, _)).  % clean up
+
+%% dict13_rule_preserved_after_register — npl_opt_rule/3 survives full pipeline
+run_test(dict13_rule_preserved_after_register) :-
+    npl_opt_rule(identity, ir_call(true), ir_true),
+    npl_opt_rule(seq_true_left, ir_seq(ir_true, _), _),
+    npl_opt_rule(fail_branch, ir_disj(ir_fail, _), _).
+
+%% dict13_entry_count_covers_categories — at least one entry per required category
+run_test(dict13_entry_count_covers_categories) :-
+    Required = [ memoisation, simplification, recursion_elimination,
+                 loop_conversion, accumulator_introduction, constant_folding,
+                 algebraic_reduction, gaussian_transform,
+                 subterm_address_iteration ],
+    forall(
+        member(Cat, Required),
+        ( npl_opt_entry(_, Fields), member(category:Cat, Fields) -> true
+        ; format('No entry for category ~w~n', [Cat]), fail
+        )
+    ).
+
+%% dict13_algebraic_rule_add_zero — add_zero rules fire in the optimiser
+run_test(dict13_algebraic_rule_add_zero) :-
+    npl_optimise([ir_clause(test_add0, ir_call(is(r, x+0)), [])], Opt1),
+    Opt1 = [ir_clause(test_add0, ir_call(is(r, x)), _)],
+    npl_optimise([ir_clause(test_add0l, ir_call(is(r, 0+x)), [])], Opt2),
+    Opt2 = [ir_clause(test_add0l, ir_call(is(r, x)), _)].
+
+%% dict13_algebraic_rule_mul_one — mul_one rules fire in the optimiser
+run_test(dict13_algebraic_rule_mul_one) :-
+    npl_optimise([ir_clause(test_mul1, ir_call(is(r, x*1)), [])], Opt1),
+    Opt1 = [ir_clause(test_mul1, ir_call(is(r, x)), _)],
+    npl_optimise([ir_clause(test_mul1l, ir_call(is(r, 1*x)), [])], Opt2),
+    Opt2 = [ir_clause(test_mul1l, ir_call(is(r, x)), _)].
+
+%% dict13_algebraic_rule_mul_zero — mul_zero rules fire in the optimiser
+run_test(dict13_algebraic_rule_mul_zero) :-
+    npl_optimise([ir_clause(test_mul0, ir_call(is(r, x*0)), [])], Opt1),
+    Opt1 = [ir_clause(test_mul0, ir_call(is(r, 0)), _)],
+    npl_optimise([ir_clause(test_mul0l, ir_call(is(r, 0*x)), [])], Opt2),
+    Opt2 = [ir_clause(test_mul0l, ir_call(is(r, 0)), _)].
+
+%% dict13_save_load_roundtrip — saved dictionary reloads correctly
+run_test(dict13_save_load_roundtrip) :-
+    TmpFile = '/tmp/npl_dict13_test.pl',
+    % Save the current dictionary to a temp file
+    npl_opt_dict_save(TmpFile),
+    % Record current entry count
+    npl_opt_dict_entries(Before),
+    length(Before, NBefore),
+    % Load the file — duplicate entries are replaced, counts stay stable
+    npl_opt_dict_load(TmpFile),
+    npl_opt_dict_entries(After),
+    length(After, NAfter),
+    NAfter == NBefore,
+    % Verify a known entry survived the roundtrip
+    npl_opt_entry(identity, Fields),
+    member(category:simplification, Fields).
+
+%% dict13_load_replaces_duplicate — loading a saved entry replaces the old one
+run_test(dict13_load_replaces_duplicate) :-
+    TmpFile = '/tmp/npl_dict13_dup_test.pl',
+    npl_opt_dict_save(TmpFile),
+    npl_opt_dict_load(TmpFile),
+    % There must still be exactly one entry for identity
+    findall(F, npl_opt_entry(identity, F), All),
+    length(All, 1).
+
+%% dict13_entry_to_rule_projection — existing rules can be projected from entries
+run_test(dict13_entry_to_rule_projection) :-
+    npl_opt_entry_to_rule(identity, ir_call(true), ir_true),
+    npl_opt_entry_to_rule(seq_true_left, ir_seq(ir_true, _), _).
+
+%% dict13_entry_version_field — version field is a positive integer
+run_test(dict13_entry_version_field) :-
+    forall(
+        npl_opt_entry(_Name, Fields),
+        ( member(version:V, Fields),
+          integer(V),
+          V >= 1 )
+    ).
+
+%% dict13_entry_examples_field — examples field is a list
+run_test(dict13_entry_examples_field) :-
+    forall(
+        npl_opt_entry(_Name, Fields),
+        ( member(examples:Ex, Fields),
+          is_list(Ex) )
+    ).
+
+%% dict13_entry_cognitive_marker_field — cognitive_marker field is present and an atom
+run_test(dict13_entry_cognitive_marker_field) :-
+    forall(
+        npl_opt_entry(_Name, Fields),
+        ( member(cognitive_marker:CM, Fields),
+          atom(CM) )
+    ).
+
+%% dict13_memoisation_entry_present — memo_pure_predicate entry exists
+run_test(dict13_memoisation_entry_present) :-
+    npl_opt_entry(memo_pure_predicate, Fields),
+    member(category:memoisation, Fields),
+    member(proof:memoisation_referential_transparency, Fields).
+
+%% dict13_gaussian_entry_present — gaussian_linear_accumulate entry exists
+run_test(dict13_gaussian_entry_present) :-
+    npl_opt_entry(gaussian_linear_accumulate, Fields),
+    member(category:gaussian_transform, Fields),
+    member(proof:gaussian_elimination_row_echelon_correctness, Fields).
+
+%% dict13_subterm_entry_present — arg_descent_to_addr_loop entry exists
+run_test(dict13_subterm_entry_present) :-
+    npl_opt_entry(arg_descent_to_addr_loop, Fields),
+    member(category:subterm_address_iteration, Fields),
+    member(proof:subterm_bfs_completeness, Fields).
