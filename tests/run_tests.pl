@@ -18,6 +18,7 @@
 :- consult('src/codegen').
 :- consult('src/control').
 :- consult('src/wam_model').
+:- consult('src/interpreter').
 
 :- dynamic test_passed/1.
 :- dynamic test_failed/1.
@@ -169,7 +170,24 @@ run_test_suite :-
     test(sem_builtin_body),
     test(sem_possibly_undefined_body),
     test(sem_eliminable_nested_true),
-    test(sem_eliminable_nested_false).
+    test(sem_eliminable_nested_false),
+    % --- Stage 7: Interpreter Core ---
+    test(interp_fact),
+    test(interp_rule),
+    test(interp_recursion),
+    test(interp_backtracking),
+    test(interp_cut),
+    test(interp_list_processing),
+    test(interp_deep_recursion),
+    test(interp_disjunction),
+    test(interp_negation),
+    test(interp_assert_retract),
+    test(interp_findall),
+    test(interp_arithmetic),
+    test(interp_prelude),
+    test(interp_neurocode),
+    test(interp_query_runner),
+    test(interp_load_ast).
 
 test(Name) :-
     ( catch(run_test(Name), Error, (write('ERROR in '), write(Name), write(': '), write(Error), nl, fail))
@@ -1051,3 +1069,161 @@ run_test(sem_eliminable_nested_true) :-
 %% tail recursion class → eliminable = false
 run_test(sem_eliminable_nested_false) :-
     semantic_analyser:npl_eliminable_nested(tail, false).
+
+%% =====================================================================
+%% Interpreter tests — Stage 7
+%% =====================================================================
+%%
+%% Each test calls npl_interp_reset/0 first to ensure a clean database.
+
+%% interp_fact — load facts and query them
+run_test(interp_fact) :-
+    npl_interp_reset,
+    npl_interp_assert(color(red)),
+    npl_interp_assert(color(green)),
+    npl_interp_assert(color(blue)),
+    npl_interp_query(color(red), true),
+    npl_interp_query(color(green), true),
+    npl_interp_query(color(yellow), false).
+
+%% interp_rule — load a rule and derive a conclusion
+run_test(interp_rule) :-
+    npl_interp_reset,
+    npl_interp_assert(parent(tom, bob)),
+    npl_interp_assert(parent(bob, ann)),
+    npl_interp_assert((grandparent(X, Z) :- parent(X, Y), parent(Y, Z))),
+    npl_interp_query(grandparent(tom, ann), true),
+    npl_interp_query(grandparent(tom, bob), false).
+
+%% interp_recursion — recursive membership predicate
+run_test(interp_recursion) :-
+    npl_interp_reset,
+    npl_interp_assert((my_member(X, [X|_]))),
+    npl_interp_assert((my_member(X, [_|T]) :- my_member(X, T))),
+    npl_interp_query(my_member(2, [1,2,3]), true),
+    npl_interp_query(my_member(4, [1,2,3]), false).
+
+%% interp_backtracking — collect multiple solutions via backtracking
+run_test(interp_backtracking) :-
+    npl_interp_reset,
+    npl_interp_assert(fruit(apple)),
+    npl_interp_assert(fruit(banana)),
+    npl_interp_assert(fruit(cherry)),
+    npl_interp_query_all(fruit(F), F, Fruits),
+    Fruits == [apple, banana, cherry].
+
+%% interp_cut — cut prevents backtracking to further clauses
+run_test(interp_cut) :-
+    npl_interp_reset,
+    npl_interp_assert((first_color(red) :- !)),
+    npl_interp_assert(first_color(blue)),
+    npl_interp_query_all(first_color(C), C, Colors),
+    Colors == [red].
+
+%% interp_list_processing — interpreter runs list append rules
+run_test(interp_list_processing) :-
+    npl_interp_reset,
+    npl_interp_assert((my_append([], L, L))),
+    npl_interp_assert((my_append([H|T], L, [H|R]) :- my_append(T, L, R))),
+    npl_interp_query_all(my_append([1,2], [3,4], Z), Z, [[1,2,3,4]]),
+    npl_interp_query_all(my_append(A, B, [a,b]),
+                         A-B,
+                         [ []-[a,b],
+                           [a]-[b],
+                           [a,b]-[] ]).
+
+%% interp_deep_recursion — list length via recursion + arithmetic
+run_test(interp_deep_recursion) :-
+    npl_interp_reset,
+    npl_interp_assert((my_length([], 0))),
+    npl_interp_assert((my_length([_|T], N) :- my_length(T, N1), N is N1 + 1)),
+    npl_interp_query_all(my_length([a,b,c,d], N), N, [4]).
+
+%% interp_disjunction — disjunctive bodies work correctly
+run_test(interp_disjunction) :-
+    npl_interp_reset,
+    npl_interp_assert((likes(X) :- (X = cats ; X = dogs))),
+    npl_interp_query_all(likes(A), A, Likes),
+    Likes == [cats, dogs].
+
+%% interp_negation — negation as failure
+run_test(interp_negation) :-
+    npl_interp_reset,
+    npl_interp_assert(bird(penguin)),
+    npl_interp_assert(bird(eagle)),
+    npl_interp_assert((can_fly(B) :- bird(B), \+ B = penguin)),
+    npl_interp_query_all(can_fly(B), B, Flyers),
+    Flyers == [eagle].
+
+%% interp_assert_retract — dynamic assertion and retraction
+run_test(interp_assert_retract) :-
+    npl_interp_reset,
+    npl_interp_assert(item(a)),
+    npl_interp_assert(item(b)),
+    npl_interp_query(item(a), true),
+    npl_interp_retract(item(a)),
+    npl_interp_query(item(a), false),
+    npl_interp_query(item(b), true).
+
+%% interp_findall — findall collects all solutions via interpreter
+run_test(interp_findall) :-
+    npl_interp_reset,
+    npl_interp_assert(digit(1)),
+    npl_interp_assert(digit(2)),
+    npl_interp_assert(digit(3)),
+    npl_interp_assert((even_digit(D) :- digit(D), 0 =:= D mod 2)),
+    npl_interp_query_all(even_digit(D), D, Evens),
+    Evens == [2].
+
+%% interp_arithmetic — arithmetic operations in interpreted code
+run_test(interp_arithmetic) :-
+    npl_interp_reset,
+    npl_interp_assert((square(X, Y) :- Y is X * X)),
+    npl_interp_assert((sum_squares(A, B, S) :-
+        square(A, SA), square(B, SB), S is SA + SB)),
+    npl_interp_query_all(sum_squares(3, 4, S), S, [25]).
+
+%% interp_prelude — prelude predicates callable from interpreted code
+run_test(interp_prelude) :-
+    npl_interp_reset,
+    npl_interp_assert((demo_append(L) :- npl_append([1,2], [3,4], L))),
+    npl_interp_assert((demo_reverse(R) :- npl_reverse([a,b,c], R))),
+    npl_interp_query_all(demo_append(L), L, [[1,2,3,4]]),
+    npl_interp_query_all(demo_reverse(R), R, [[c,b,a]]).
+
+%% interp_neurocode — load and execute generated neurocode
+run_test(interp_neurocode) :-
+    npl_interp_reset,
+    % Generate neurocode from IR and load it into the interpreter.
+    % nc_greeting/0 is a rule; nc_lucky/1 is a ground fact.
+    npl_generate(
+        [ ir_clause(nc_greeting,
+                    ir_seq(ir_call(write(hi_neurocode)), ir_call(nl)),
+                    info(head:ok, body:ok)),
+          ir_clause(nc_lucky(7),
+                    ir_true,
+                    info(head:ok, body:ok)) ],
+        Code
+    ),
+    npl_interp_load_clauses(Code),
+    npl_interp_query(nc_greeting, true),
+    npl_interp_query(nc_lucky(7), true),
+    npl_interp_query(nc_lucky(8), false).
+
+%% interp_query_runner — batch query runner returns true/false per query
+run_test(interp_query_runner) :-
+    npl_interp_reset,
+    npl_interp_assert(ok(a)),
+    npl_interp_assert(ok(b)),
+    npl_query_runner([ok(a), ok(c), ok(b)], Results),
+    Results == [true, false, true].
+
+%% interp_load_ast — load a parsed AST (ground facts) through the interpreter
+run_test(interp_load_ast) :-
+    npl_interp_reset,
+    % Parse ground facts only (parser var(Name) placeholders are not Prolog vars)
+    npl_parse_string('animal(cat). animal(dog). animal(fish).', AST),
+    npl_interp_load(AST),
+    npl_interp_query(animal(cat), true),
+    npl_interp_query(animal(dog), true),
+    npl_interp_query(animal(bird), false).

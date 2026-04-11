@@ -22,6 +22,7 @@
 :- consult('src/gaussian_recursion').
 :- consult('src/subterm_addressing').
 :- consult('src/optimisation_dictionary').
+:- consult('src/interpreter').
 
 %% npl_main/0
 %  Start the NeuroProlog interactive interpreter.
