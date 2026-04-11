@@ -75,6 +75,9 @@ npl_rewrite_term(ir_memo_site(H, B), Pattern, Replacement,
 npl_rewrite_term(ir_loop_candidate(B), Pattern, Replacement,
                  ir_loop_candidate(B1)) :- !,
     npl_rewrite_term(B, Pattern, Replacement, B1).
+npl_rewrite_term(ir_addr_loop(TV, Sig, B), Pattern, Replacement,
+                 ir_addr_loop(TV, Sig, B1)) :- !,
+    npl_rewrite_term(B, Pattern, Replacement, B1).
 npl_rewrite_term(ir_choice_point(Alts), Pattern, Replacement,
                  ir_choice_point(Alts1)) :- !,
     maplist(npl_rewrite_term_alt(Pattern, Replacement), Alts, Alts1).
