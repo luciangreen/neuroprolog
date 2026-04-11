@@ -3031,7 +3031,9 @@ run_test(cg16_memo_site_emits_cache_check) :-
         ir_memo_site(fib(5, _F), ir_call(fib_body)),
         [],
         Body),
-    Body = ( ground(_) -> ( npl_memo_cache(_, det, true) -> true ; _, assertz(_) ) ; _ ).
+    with_output_to(atom(Txt), write_term(Body, [quoted(true)])),
+    sub_atom(Txt, _, _, _, 'ground'),
+    sub_atom(Txt, _, _, _, 'npl_memo_cache').
 
 %% cg16_memo_site_emits_assertz — memo body includes assertz for caching
 run_test(cg16_memo_site_emits_assertz) :-

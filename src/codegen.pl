@@ -39,7 +39,8 @@
                     npl_generate_full/3,
                     npl_ir_to_body_emitting/3,
                     npl_write_neurocode_full/3,
-                    npl_generate_text/3]).
+                    npl_generate_text/3,
+                    npl_cg_loop_max_depth/1]).
 
 %% npl_generate/2
 %  npl_generate(+OptIR, -Neurocode)
@@ -298,15 +299,24 @@ npl_ir_to_body_emitting(ir_memo_site(Key, IRBody), Info, MemoBody) :- !,
 npl_ir_to_body_emitting(ir_loop_candidate(IRBody), Info, Body) :- !,
     npl_ir_to_body_emitting(IRBody, Info, Body).
 
+%% npl_cg_loop_max_depth/1
+%  npl_cg_loop_max_depth(?MaxDepth)
+%  Default maximum depth for bounded subterm address iteration in generated code.
+%  A depth of 10 is conservative but handles typical clause structure.  Override
+%  by asserting a new fact before code generation if deeper traversal is needed.
+npl_cg_loop_max_depth(10).
+
 %% Address loop — emit bounded subterm iteration using npl_subterm_addr_bounded/3.
 %  The emitted form:
-%    ( npl_subterm_addr_bounded(TV, 100, NplLoopAddrs_),
+%    ( npl_subterm_addr_bounded(TV, MaxDepth, NplLoopAddrs_),
 %      forall(member(_, NplLoopAddrs_), Body) )
 %  This expresses the loop in valid Prolog: collect all subterm addresses of
-%  TV within depth 100, then execute Body for each address position.
+%  TV within MaxDepth, then execute Body for each address position.
+%  MaxDepth is taken from npl_cg_loop_max_depth/1 (default 10).
 npl_ir_to_body_emitting(ir_addr_loop(TV, _Sig, IRBody), Info, LoopBody) :- !,
     npl_ir_to_body_emitting(IRBody, Info, Body),
-    LoopBody = ( npl_subterm_addr_bounded(TV, 100, NplLoopAddrs_),
+    npl_cg_loop_max_depth(MaxDepth),
+    LoopBody = ( npl_subterm_addr_bounded(TV, MaxDepth, NplLoopAddrs_),
                  forall(member(_, NplLoopAddrs_), Body) ).
 
 npl_ir_to_body_emitting(ir_choice_point([Alt]), Info, Body) :- !,
