@@ -47,7 +47,10 @@ swipl -g "consult('src/rebuild')" -g "rebuild_neuroprolog" -t halt
 - [ARCHITECTURE.md](ARCHITECTURE.md) — System architecture overview
 - [REBUILDING.md](REBUILDING.md) — How to rebuild and self-optimise
 - [OPTIMISATION_RULES.md](OPTIMISATION_RULES.md) — Optimisation rules and transformations
+- [OPTIMISATION_DICTIONARY.md](OPTIMISATION_DICTIONARY.md) — Optimisation dictionary schema and API
+- [COGNITIVE_MARKERS.md](COGNITIVE_MARKERS.md) — Cognitive markers and provenance mappings
 - [SELF_HOSTING.md](SELF_HOSTING.md) — Self-hosting invariants and constraints
+- [CONTRIBUTING.md](CONTRIBUTING.md) — Pull request acceptance criteria
 
 ## Non-Negotiable Constraints
 
