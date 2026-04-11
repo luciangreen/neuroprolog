@@ -168,24 +168,26 @@ npl_clause_to_ir(clause(Head, Body),
 %% npl_props_to_ir_info/2
 %  Derive a structured IRInfo list from analysed Props.
 npl_props_to_ir_info(Props, IRInfo) :-
-    npl_prop_val(Props, source_pos,                   Pos,     no_pos),
+    npl_prop_val(Props, source_pos,                   Pos,      no_pos),
     npl_prop_val(Props, recursion_class,               RecClass, none),
-    npl_prop_val(Props, choice_point,                  CP,      false),
-    npl_prop_val(Props, memoisation_suitable,          MemoOk,  false),
-    npl_prop_val(Props, gaussian_elimination_suitable, LoopOk,  false),
-    npl_prop_val(Props, simplification_opportunities,  Simps,   []),
-    npl_prop_val(Props, cognitive_code_marker,         Marker,  none),
-    npl_prop_val(Props, head,                          HStatus, ok),
-    npl_prop_val(Props, body,                          BStatus, ok),
-    IRInfo = [ source_marker:    Pos,
-               recursion_class:  RecClass,
-               choice_point:     CP,
-               memo_site:        MemoOk,
-               loop_candidate:   LoopOk,
-               optimisation_meta:Simps,
-               cognitive_marker: Marker,
-               head_status:      HStatus,
-               body_status:      BStatus ].
+    npl_prop_val(Props, choice_point,                  CP,       false),
+    npl_prop_val(Props, memoisation_suitable,          MemoOk,   false),
+    %% gaussian_elimination_suitable = true means the predicate can be reduced
+    %% to an accumulator/iterative form — i.e. it is a loop candidate.
+    npl_prop_val(Props, gaussian_elimination_suitable, GaussOk,  false),
+    npl_prop_val(Props, simplification_opportunities,  Simps,    []),
+    npl_prop_val(Props, cognitive_code_marker,         Marker,   none),
+    npl_prop_val(Props, head,                          HStatus,  ok),
+    npl_prop_val(Props, body,                          BStatus,  ok),
+    IRInfo = [ source_marker:     Pos,
+               recursion_class:   RecClass,
+               choice_point:      CP,
+               memo_site:         MemoOk,
+               loop_candidate:    GaussOk,
+               optimisation_meta: Simps,
+               cognitive_marker:  Marker,
+               head_status:       HStatus,
+               body_status:       BStatus ].
 
 %% npl_prop_val(+Props, +Key, -Value, +Default)
 npl_prop_val(Props, Key, Value, Default) :-
