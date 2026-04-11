@@ -22,6 +22,7 @@
 :- consult('src/control').
 :- consult('src/wam_model').
 :- consult('src/interpreter').
+:- consult('src/cognitive_markers').
 
 :- dynamic test_passed/1.
 :- dynamic test_failed/1.
@@ -323,7 +324,26 @@ run_test_suite :-
     test(dict13_entry_cognitive_marker_field),
     test(dict13_memoisation_entry_present),
     test(dict13_gaussian_entry_present),
-    test(dict13_subterm_entry_present).
+    test(dict13_subterm_entry_present),
+    % --- Stage 14: Cognitive Markers and Neurocode Mapping ---
+    test(ncm14_record_lookup),
+    test(ncm14_lookup_by_head),
+    test(ncm14_all_records),
+    test(ncm14_clear),
+    test(ncm14_schema_meta_fields),
+    test(ncm14_opt_steps_is_list),
+    test(ncm14_neurocode_is_term),
+    test(ncm14_build_single_clause),
+    test(ncm14_build_multi_clause),
+    test(ncm14_build_preserves_marker),
+    test(ncm14_build_marker_none_when_absent),
+    test(ncm14_trace_report_nonempty),
+    test(ncm14_trace_report_entry_fields),
+    test(ncm14_report_entry_format),
+    test(ncm14_meta_pred_sig),
+    test(ncm14_meta_source_marker),
+    test(ncm14_meta_rebuild_version),
+    test(ncm14_full_pipeline).
 
 test(Name) :-
     ( catch(run_test(Name), Error, (write('ERROR in '), write(Name), write(': '), write(Error), nl, fail))
@@ -2499,3 +2519,204 @@ run_test(dict13_subterm_entry_present) :-
     npl_opt_entry(arg_descent_to_addr_loop, Fields),
     member(category:subterm_address_iteration, Fields),
     member(proof:subterm_bfs_completeness, Fields).
+
+%%====================================================================
+%% Stage 14: Cognitive Markers and Neurocode Mapping
+%%====================================================================
+
+%% ncm14_record_lookup — record a mapping and retrieve it by marker
+run_test(ncm14_record_lookup) :-
+    npl_ncm_clear,
+    Orig = ir_clause(test14_foo(1), ir_true, [cognitive_marker:test_marker, source_marker:no_pos]),
+    npl_ncm_record(Orig, test_marker, test14_foo(1), [rule_a], [pred_sig:test14_foo/1, source_marker:no_pos, rebuild_version:1]),
+    npl_ncm_lookup_by_marker(test_marker, ncm(Orig, test_marker, test14_foo(1), [rule_a], _)),
+    npl_ncm_clear.
+
+%% ncm14_lookup_by_head — retrieve entries by head functor/arity
+run_test(ncm14_lookup_by_head) :-
+    npl_ncm_clear,
+    Orig = ir_clause(bar14(x), ir_call(baz), [cognitive_marker:none, source_marker:no_pos]),
+    npl_ncm_record(Orig, none, (bar14(x) :- baz), [step1], [pred_sig:bar14/1, source_marker:no_pos, rebuild_version:1]),
+    npl_ncm_lookup_by_head(bar14(_), ncm(Orig, _, _, _, _)),
+    npl_ncm_clear.
+
+%% ncm14_all_records — npl_ncm_all/1 returns all asserted entries
+run_test(ncm14_all_records) :-
+    npl_ncm_clear,
+    Orig1 = ir_clause(p14(1), ir_true, []),
+    Orig2 = ir_clause(q14(2), ir_true, []),
+    npl_ncm_record(Orig1, none, p14(1), [], [pred_sig:p14/1, source_marker:no_pos, rebuild_version:1]),
+    npl_ncm_record(Orig2, none, q14(2), [], [pred_sig:q14/1, source_marker:no_pos, rebuild_version:1]),
+    npl_ncm_all(Entries),
+    length(Entries, 2),
+    npl_ncm_clear.
+
+%% ncm14_clear — npl_ncm_clear/0 removes all entries
+run_test(ncm14_clear) :-
+    npl_ncm_clear,
+    Orig = ir_clause(r14(a), ir_true, []),
+    npl_ncm_record(Orig, none, r14(a), [], [pred_sig:r14/1, source_marker:no_pos, rebuild_version:1]),
+    npl_ncm_all(Before),
+    length(Before, 1),
+    npl_ncm_clear,
+    npl_ncm_all(After),
+    After = [].
+
+%% ncm14_schema_meta_fields — meta always contains the three required keys
+run_test(ncm14_schema_meta_fields) :-
+    npl_ncm_clear,
+    Meta = [pred_sig:s14/1, source_marker:pos(1,1), rebuild_version:1],
+    Orig = ir_clause(s14(a), ir_true, []),
+    npl_ncm_record(Orig, none, s14(a), [], Meta),
+    npl_ncm_all([ncm(_, _, _, _, M)]),
+    member(pred_sig:_, M),
+    member(source_marker:_, M),
+    member(rebuild_version:_, M),
+    npl_ncm_clear.
+
+%% ncm14_opt_steps_is_list — opt_steps field is always a list
+run_test(ncm14_opt_steps_is_list) :-
+    npl_ncm_clear,
+    Steps = [identity, seq_true_left, gaussian_reduce],
+    Orig = ir_clause(t14(a), ir_true, []),
+    npl_ncm_record(Orig, none, t14(a), Steps, [pred_sig:t14/1, source_marker:no_pos, rebuild_version:1]),
+    npl_ncm_all([ncm(_, _, _, S, _)]),
+    is_list(S),
+    npl_ncm_clear.
+
+%% ncm14_neurocode_is_term — neurocode fragment field is a valid Prolog term
+run_test(ncm14_neurocode_is_term) :-
+    npl_ncm_clear,
+    NeuroFrag = (u14(X) :- member(X, [1,2,3])),
+    Orig = ir_clause(u14(_), ir_call(member(_,[1,2,3])), []),
+    npl_ncm_record(Orig, none, NeuroFrag, [], [pred_sig:u14/1, source_marker:no_pos, rebuild_version:1]),
+    npl_ncm_all([ncm(_, _, NF, _, _)]),
+    compound(NF),
+    npl_ncm_clear.
+
+%% ncm14_build_single_clause — build mapping from a single IR clause
+run_test(ncm14_build_single_clause) :-
+    npl_ncm_clear,
+    OrigIR  = [ir_clause(v14(1), ir_true, [cognitive_marker:none, source_marker:no_pos])],
+    OptIR   = [ir_clause(v14(1), ir_true, [cognitive_marker:none, source_marker:no_pos])],
+    NC      = [v14(1)],
+    npl_ncm_build_from_ir(OrigIR, OptIR, NC, Mappings),
+    Mappings = [ncm(ir_clause(v14(1), _, _), none, v14(1), _, _)],
+    npl_ncm_clear.
+
+%% ncm14_build_multi_clause — build mappings from multiple IR clauses
+run_test(ncm14_build_multi_clause) :-
+    npl_ncm_clear,
+    OrigIR = [
+        ir_clause(w14(0), ir_true, [cognitive_marker:none, source_marker:no_pos]),
+        ir_clause(w14(s(N)), ir_call(w14(N)), [cognitive_marker:none, source_marker:no_pos])
+    ],
+    OptIR = [
+        ir_clause(w14(0), ir_true, [cognitive_marker:none, source_marker:no_pos]),
+        ir_clause(w14(s(N)), ir_call(w14(N)), [cognitive_marker:none, source_marker:no_pos])
+    ],
+    NC = [ w14(0), (w14(s(N)) :- w14(N)) ],
+    npl_ncm_build_from_ir(OrigIR, OptIR, NC, Mappings),
+    length(Mappings, 2),
+    npl_ncm_clear.
+
+%% ncm14_build_preserves_marker — cognitive marker from IR info is preserved
+run_test(ncm14_build_preserves_marker) :-
+    npl_ncm_clear,
+    Marker = 'recursion:tail',
+    OrigIR = [ir_clause(x14(n), ir_call(x14(n1)), [cognitive_marker:Marker, source_marker:no_pos])],
+    OptIR  = [ir_clause(x14(n), ir_call(x14(n1)), [cognitive_marker:Marker, source_marker:no_pos])],
+    NC     = [(x14(n) :- x14(n1))],
+    npl_ncm_build_from_ir(OrigIR, OptIR, NC, [ncm(_, M, _, _, _)]),
+    M == Marker,
+    npl_ncm_clear.
+
+%% ncm14_build_marker_none_when_absent — marker is 'none' when not in IR info
+run_test(ncm14_build_marker_none_when_absent) :-
+    npl_ncm_clear,
+    OrigIR = [ir_clause(y14(a), ir_true, [source_marker:no_pos])],
+    OptIR  = [ir_clause(y14(a), ir_true, [source_marker:no_pos])],
+    NC     = [y14(a)],
+    npl_ncm_build_from_ir(OrigIR, OptIR, NC, [ncm(_, Marker, _, _, _)]),
+    Marker == none,
+    npl_ncm_clear.
+
+%% ncm14_trace_report_nonempty — trace report is non-empty after recording
+run_test(ncm14_trace_report_nonempty) :-
+    npl_ncm_clear,
+    Orig = ir_clause(z14(1), ir_true, []),
+    npl_ncm_record(Orig, none, z14(1), [step_a], [pred_sig:z14/1, source_marker:no_pos, rebuild_version:1]),
+    npl_ncm_trace_report(Report),
+    Report \= [],
+    npl_ncm_clear.
+
+%% ncm14_trace_report_entry_fields — each trace entry has four fields
+run_test(ncm14_trace_report_entry_fields) :-
+    npl_ncm_clear,
+    Orig = ir_clause(aa14(b), ir_call(bb14(b)), []),
+    npl_ncm_record(Orig, 'loop:addr', (aa14(b) :- bb14(b)), [rule1, rule2], [pred_sig:aa14/1, source_marker:no_pos, rebuild_version:1]),
+    npl_ncm_trace_report(Report),
+    member(trace_entry(Marker, OrigHead, NeuroFrag, Steps), Report),
+    Marker   == 'loop:addr',
+    OrigHead == aa14(b),
+    compound(NeuroFrag),
+    is_list(Steps),
+    npl_ncm_clear.
+
+%% ncm14_report_entry_format — npl_ncm_report_entry/2 produces a report_line/4
+run_test(ncm14_report_entry_format) :-
+    npl_ncm_clear,
+    Meta = [pred_sig:cc14/2, source_marker:pos(3,1), rebuild_version:1],
+    Entry = ncm(ir_clause(cc14(a,b), ir_true, []), 'memoisation:hint', cc14(a,b), [r1,r2,r3], Meta),
+    npl_ncm_report_entry(Entry, report_line(Marker, Sig, NF, N)),
+    Marker == 'memoisation:hint',
+    Sig    == cc14/2,
+    NF     == cc14(a,b),
+    N      == 3,
+    npl_ncm_clear.
+
+%% ncm14_meta_pred_sig — meta pred_sig matches the clause head functor/arity
+run_test(ncm14_meta_pred_sig) :-
+    npl_ncm_clear,
+    OrigIR = [ir_clause(dd14(x, y), ir_call(ee14(x)), [cognitive_marker:none, source_marker:no_pos])],
+    OptIR  = [ir_clause(dd14(x, y), ir_call(ee14(x)), [cognitive_marker:none, source_marker:no_pos])],
+    NC     = [(dd14(x, y) :- ee14(x))],
+    npl_ncm_build_from_ir(OrigIR, OptIR, NC, [ncm(_, _, _, _, Meta)]),
+    member(pred_sig:dd14/2, Meta),
+    npl_ncm_clear.
+
+%% ncm14_meta_source_marker — meta source_marker reflects the IR info position
+run_test(ncm14_meta_source_marker) :-
+    npl_ncm_clear,
+    OrigIR = [ir_clause(ff14(a), ir_true, [cognitive_marker:none, source_marker:pos(7,1)])],
+    OptIR  = [ir_clause(ff14(a), ir_true, [cognitive_marker:none, source_marker:pos(7,1)])],
+    NC     = [ff14(a)],
+    npl_ncm_build_from_ir(OrigIR, OptIR, NC, [ncm(_, _, _, _, Meta)]),
+    member(source_marker:pos(7,1), Meta),
+    npl_ncm_clear.
+
+%% ncm14_meta_rebuild_version — meta rebuild_version is always 1
+run_test(ncm14_meta_rebuild_version) :-
+    npl_ncm_clear,
+    OrigIR = [ir_clause(gg14(z), ir_true, [cognitive_marker:none, source_marker:no_pos])],
+    OptIR  = [ir_clause(gg14(z), ir_true, [cognitive_marker:none, source_marker:no_pos])],
+    NC     = [gg14(z)],
+    npl_ncm_build_from_ir(OrigIR, OptIR, NC, [ncm(_, _, _, _, Meta)]),
+    member(rebuild_version:1, Meta),
+    npl_ncm_clear.
+
+%% ncm14_full_pipeline — end-to-end: parse→IR→optimise→codegen→build mappings
+run_test(ncm14_full_pipeline) :-
+    npl_ncm_clear,
+    npl_parse_string('sum14([], 0). sum14([H|T], S) :- sum14(T, S1), S is S1 + H.', AST),
+    npl_analyse(AST, AAST),
+    npl_intermediate(AAST, OrigIR),
+    npl_optimise(OrigIR, OptIR),
+    npl_generate(OptIR, Neurocode),
+    npl_ncm_build_from_ir(OrigIR, OptIR, Neurocode, Mappings),
+    length(Mappings, 2),
+    Mappings = [ncm(_, _, _, Steps, Meta1)|_],
+    is_list(Steps),
+    member(pred_sig:sum14/2, Meta1),
+    member(rebuild_version:1, Meta1),
+    npl_ncm_clear.
