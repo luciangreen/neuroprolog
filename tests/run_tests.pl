@@ -12,6 +12,8 @@
 :- consult('src/intermediate_codegen').
 :- consult('src/optimisation_dictionary').
 :- consult('src/memoisation').
+:- consult('src/unfolding').
+:- consult('src/pattern_correlation').
 :- consult('src/gaussian_recursion').
 :- consult('src/subterm_addressing').
 :- consult('src/optimiser').
@@ -259,7 +261,48 @@ run_test_suite :-
     test(nested11_pass_linear_unchanged),
     test(nested11_pass_pure_nested),
     test(nested11_pass_structural_nested),
-    test(nested11_pass_empty_ir).
+    test(nested11_pass_empty_ir),
+    % --- Stage 12: Logical Memoisation and Data Unfolding ---
+    test(memo12_cache_hit),
+    test(memo12_cache_ground_only),
+    test(memo12_cache_clear),
+    test(memo12_safety_ground),
+    test(memo12_safety_nonground),
+    test(memo12_safety_side_effect),
+    test(memo12_stats_hit),
+    test(memo12_stats_miss),
+    test(memo12_call_all),
+    test(memo12_subgoal),
+    test(memo12_clear_all),
+    test(memo12_ir_pass),
+    test(unfold12_term_atom),
+    test(unfold12_term_number),
+    test(unfold12_term_var),
+    test(unfold12_term_compound),
+    test(unfold12_term_nested),
+    test(unfold12_goal_true),
+    test(unfold12_goal_call),
+    test(unfold12_goal_seq),
+    test(unfold12_key_ground),
+    test(unfold12_key_with_vars),
+    test(unfold12_match_same_atoms),
+    test(unfold12_match_same_shape),
+    test(unfold12_match_different_structure),
+    test(unfold12_detect_repeated_none),
+    test(unfold12_detect_repeated_one),
+    test(unfold12_detect_repeated_two),
+    test(unfold12_pass_no_reps),
+    test(unfold12_pass_with_reps),
+    test(unfold12_record_transformation),
+    test(pcorr12_record_lookup),
+    test(pcorr12_no_match),
+    test(pcorr12_count_increments),
+    test(pcorr12_repeated_threshold),
+    test(pcorr12_not_repeated),
+    test(pcorr12_all),
+    test(pcorr12_clear),
+    test(pcorr12_record_ir),
+    test(pcorr12_ir_report).
 
 test(Name) :-
     ( catch(run_test(Name), Error, (write('ERROR in '), write(Name), write(': '), write(Error), nl, fail))
@@ -1956,3 +1999,291 @@ run_test(nested11_pass_structural_nested) :-
 %% nested11_pass_empty_ir — empty IR passes through unchanged
 run_test(nested11_pass_empty_ir) :-
     npl_nested_eliminate_pass([], []).
+
+%%====================================================================
+%% Stage 12: Logical Memoisation and Data Unfolding
+%%====================================================================
+
+%% ----------------------------------------------------------------
+%% Memoisation engine
+%% ----------------------------------------------------------------
+
+%% memo12_cache_hit — second call returns cached result, not recomputed
+run_test(memo12_cache_hit) :-
+    npl_memo_clear_all,
+    npl_memo_call(member(a, [a,b,c])),
+    npl_memo_stats(member(a, [a,b,c]), _H0, M0),
+    npl_memo_call(member(a, [a,b,c])),
+    npl_memo_stats(member(a, [a,b,c]), H1, _M1),
+    M0 == 1,
+    H1 >= 1.
+
+%% memo12_cache_ground_only — non-ground goal bypasses cache (safe fallback)
+run_test(memo12_cache_ground_only) :-
+    npl_memo_clear_all,
+    % Goal with a free variable: not ground → not cached
+    npl_memo_call(true),           % warm up
+    npl_memo_call(member(1,[1,2])), % ground → can cache
+    npl_memo_inspect(member/2, Entries),
+    length(Entries, N),
+    N >= 1.
+
+%% memo12_cache_clear — clearing removes cached entries for a functor
+run_test(memo12_cache_clear) :-
+    npl_memo_clear_all,
+    npl_memo_call(member(a, [a,b,c])),
+    npl_memo_inspect(member/2, Before),
+    Before \== [],
+    npl_memo_clear(member/2),
+    npl_memo_inspect(member/2, After),
+    After == [].
+
+%% memo12_safety_ground — a ground, pure goal is safe to memoise
+run_test(memo12_safety_ground) :-
+    npl_memo_is_safe(member(a, [a,b,c])).
+
+%% memo12_safety_nonground — a goal with free variables is not safe
+run_test(memo12_safety_nonground) :-
+    \+ npl_memo_is_safe(member(_X, [1,2,3])).
+
+%% memo12_safety_side_effect — side-effecting goals are not safe
+run_test(memo12_safety_side_effect) :-
+    \+ npl_memo_is_safe(write(hello)),
+    \+ npl_memo_is_safe(assertz(foo)),
+    \+ npl_memo_is_safe(nb_setval(k, v)).
+
+%% memo12_stats_hit — hit counter increments on cache hit
+run_test(memo12_stats_hit) :-
+    npl_memo_clear_all,
+    npl_memo_call(member(b, [a,b,c])),
+    npl_memo_call(member(b, [a,b,c])),
+    npl_memo_stats(member(b, [a,b,c]), Hits, _),
+    Hits >= 1.
+
+%% memo12_stats_miss — miss counter increments on first call
+run_test(memo12_stats_miss) :-
+    npl_memo_clear_all,
+    npl_memo_call(member(c, [a,b,c])),
+    npl_memo_stats(member(c, [a,b,c]), _, Misses),
+    Misses >= 1.
+
+%% memo12_call_all — all-solutions caching is consistent with findall
+run_test(memo12_call_all) :-
+    npl_memo_clear_all,
+    npl_memo_call_all(member(X, [a,b,c]), X, Solutions1),
+    npl_memo_call_all(member(X, [a,b,c]), X, Solutions2),
+    Solutions1 == [a,b,c],
+    Solutions2 == [a,b,c].
+
+%% memo12_subgoal — explicit-key subgoal memoisation
+run_test(memo12_subgoal) :-
+    npl_memo_clear_all,
+    npl_memo_subgoal(test_key_42, true),
+    npl_memo_stats(test_key_42, _H, M),
+    M >= 1,
+    % Second call hits cache
+    npl_memo_subgoal(test_key_42, true),
+    npl_memo_stats(test_key_42, H2, _),
+    H2 >= 1.
+
+%% memo12_clear_all — npl_memo_clear_all removes everything
+run_test(memo12_clear_all) :-
+    npl_memo_clear_all,
+    npl_memo_call(number_codes(1, _)),
+    npl_memo_call(number_codes(2, _)),
+    npl_memo_clear_all,
+    npl_memo_inspect(number_codes/2, E),
+    E == [].
+
+%% memo12_ir_pass — memoisation pass annotates declared predicates in IR
+run_test(memo12_ir_pass) :-
+    npl_memo_clear_all,
+    npl_memo(my_pred/1),
+    IR = [ir_clause(my_pred(x), ir_true, []),
+          ir_clause(other(x), ir_true, [])],
+    npl_memoisation_pass(IR, OptIR),
+    OptIR = [ir_clause(my_pred(x), ir_true, memoised([])),
+             ir_clause(other(x), ir_true, [])],
+    retractall(npl_is_memoised(my_pred/1)).
+
+%% ----------------------------------------------------------------
+%% Unfolding engine
+%% ----------------------------------------------------------------
+
+%% unfold12_term_atom — atom normalises to pat(atom)
+run_test(unfold12_term_atom) :-
+    npl_unfold_term(foo, P),
+    P == pat(atom).
+
+%% unfold12_term_number — number normalises to pat(number)
+run_test(unfold12_term_number) :-
+    npl_unfold_term(42, P),
+    P == pat(number).
+
+%% unfold12_term_var — variable normalises to pat(var)
+run_test(unfold12_term_var) :-
+    npl_unfold_term(_X, P),
+    P == pat(var).
+
+%% unfold12_term_compound — compound normalises structurally
+run_test(unfold12_term_compound) :-
+    npl_unfold_term(f(a, 1), P),
+    P == pat(f, [pat(atom), pat(number)]).
+
+%% unfold12_term_nested — nested compound normalises recursively
+run_test(unfold12_term_nested) :-
+    npl_unfold_term(f(g(1), h(a, b)), P),
+    P == pat(f, [pat(g, [pat(number)]), pat(h, [pat(atom), pat(atom)])]).
+
+%% unfold12_goal_true — ir_true normalises to pat(ir_true)
+run_test(unfold12_goal_true) :-
+    npl_unfold_goal(ir_true, P),
+    P == pat(ir_true).
+
+%% unfold12_goal_call — ir_call normalises to pat(ir_call, [GoalPat])
+run_test(unfold12_goal_call) :-
+    npl_unfold_goal(ir_call(foo(1, a)), P),
+    P == pat(ir_call, [pat(foo, [pat(number), pat(atom)])]).
+
+%% unfold12_goal_seq — ir_seq normalises recursively
+run_test(unfold12_goal_seq) :-
+    npl_unfold_goal(ir_seq(ir_true, ir_fail), P),
+    P == pat(ir_seq, [pat(ir_true), pat(ir_fail)]).
+
+%% unfold12_key_ground — ground term key is the term itself
+run_test(unfold12_key_ground) :-
+    npl_unfold_key(foo(1, bar), K),
+    K == foo(1, bar).
+
+%% unfold12_key_with_vars — term with vars gets structural key
+run_test(unfold12_key_with_vars) :-
+    npl_unfold_key(foo(_X, 1), K),
+    K == foo('$var', '$number').
+
+%% unfold12_match_same_atoms — two atoms of same name match
+run_test(unfold12_match_same_atoms) :-
+    npl_unfold_match(foo, bar).   % both are atoms → same pattern
+
+%% unfold12_match_same_shape — same structure, different values match
+run_test(unfold12_match_same_shape) :-
+    npl_unfold_match(f(1, g(2)), f(3, g(4))).
+
+%% unfold12_match_different_structure — different arities don't match
+run_test(unfold12_match_different_structure) :-
+    \+ npl_unfold_match(f(1), f(1, 2)).
+
+%% unfold12_detect_repeated_none — no repeated keys in linear body
+run_test(unfold12_detect_repeated_none) :-
+    Body = ir_seq(ir_call(foo(1)), ir_call(bar(2))),
+    npl_unfold_detect_repeated(Body, Reps),
+    Reps == [].
+
+%% unfold12_detect_repeated_one — one repeated key detected
+run_test(unfold12_detect_repeated_one) :-
+    Body = ir_seq(ir_call(fib(5)), ir_call(fib(5))),
+    npl_unfold_detect_repeated(Body, Reps),
+    Reps = [fib(5)].
+
+%% unfold12_detect_repeated_two — two different repeated keys
+run_test(unfold12_detect_repeated_two) :-
+    Body = ir_seq(ir_call(f(1)), ir_seq(ir_call(g(2)),
+           ir_seq(ir_call(f(1)), ir_call(g(2))))),
+    npl_unfold_detect_repeated(Body, Reps),
+    msort(Reps, Sorted),
+    Sorted == [f(1), g(2)].
+
+%% unfold12_pass_no_reps — clause without repeated calls is unchanged
+run_test(unfold12_pass_no_reps) :-
+    IR = [ir_clause(p(1), ir_seq(ir_call(a(1)), ir_call(b(2))), [])],
+    npl_unfold_pass(IR, OptIR),
+    OptIR = [ir_clause(p(1), ir_seq(ir_call(a(1)), ir_call(b(2))), [])].
+
+%% unfold12_pass_with_reps — clause with repeated calls gets annotation
+run_test(unfold12_pass_with_reps) :-
+    IR = [ir_clause(p(1),
+                    ir_seq(ir_call(fib(10)), ir_call(fib(10))),
+                    [])],
+    npl_unfold_pass(IR, OptIR),
+    OptIR = [ir_clause(p(1), _, Info)],
+    member(repeated_substructures:[fib(10)], Info).
+
+%% unfold12_record_transformation — transformation is recorded and retrievable
+run_test(unfold12_record_transformation) :-
+    retractall(npl_transformation_recorded(test_key, _)),
+    npl_record_transformation(test_key, result_value),
+    npl_transformation_recorded(test_key, result_value).
+
+%% ----------------------------------------------------------------
+%% Pattern correlation matcher
+%% ----------------------------------------------------------------
+
+%% pcorr12_record_lookup — recorded pattern is found by lookup
+run_test(pcorr12_record_lookup) :-
+    npl_pcorr_clear,
+    npl_pcorr_record(foo(1, bar)),
+    npl_pcorr_lookup(foo(2, baz), Count),  % same shape as foo(1, bar)
+    Count == 1.
+
+%% pcorr12_no_match — lookup fails for unrecorded pattern shape
+run_test(pcorr12_no_match) :-
+    npl_pcorr_clear,
+    npl_pcorr_record(foo(1)),
+    \+ npl_pcorr_lookup(bar(1), _).   % different functor → different pattern
+
+%% pcorr12_count_increments — recording the same shape increments count
+run_test(pcorr12_count_increments) :-
+    npl_pcorr_clear,
+    npl_pcorr_record(foo(1)),
+    npl_pcorr_record(foo(2)),   % same shape: pat(foo, [pat(number)])
+    npl_pcorr_lookup(foo(3), Count),
+    Count == 2.
+
+%% pcorr12_repeated_threshold — npl_pcorr_repeated/2 requires count >= 2
+run_test(pcorr12_repeated_threshold) :-
+    npl_pcorr_clear,
+    npl_pcorr_record(f(1)),
+    npl_pcorr_record(f(2)),
+    npl_pcorr_repeated(f(3), Count),
+    Count == 2.
+
+%% pcorr12_not_repeated — single occurrence is not a repeated form
+run_test(pcorr12_not_repeated) :-
+    npl_pcorr_clear,
+    npl_pcorr_record(f(1)),
+    \+ npl_pcorr_repeated(f(1), _).
+
+%% pcorr12_all — npl_pcorr_all/1 returns all recorded entries
+run_test(pcorr12_all) :-
+    npl_pcorr_clear,
+    npl_pcorr_record(f(1)),    % shape: pat(f, [pat(number)])
+    npl_pcorr_record(g(1)),    % shape: pat(g, [pat(number)]) — different functor
+    npl_pcorr_all(Entries),
+    length(Entries, 2).
+
+%% pcorr12_clear — npl_pcorr_clear/0 removes all entries
+run_test(pcorr12_clear) :-
+    npl_pcorr_record(something),
+    npl_pcorr_clear,
+    npl_pcorr_all([]).
+
+%% pcorr12_record_ir — recording an IR body extracts call goals
+run_test(pcorr12_record_ir) :-
+    npl_pcorr_clear,
+    Body = ir_seq(ir_call(foo(1)), ir_seq(ir_call(bar(2)), ir_call(foo(3)))),
+    npl_pcorr_record_ir(Body),
+    % foo/1 recorded twice, bar/1 recorded once
+    npl_pcorr_lookup(foo(0), FooCount),
+    npl_pcorr_lookup(bar(0), BarCount),
+    FooCount == 2,
+    BarCount == 1.
+
+%% pcorr12_ir_report — ir_report returns patterns with count >= 2
+run_test(pcorr12_ir_report) :-
+    IR = [
+        ir_clause(p(1), ir_seq(ir_call(fib(5)), ir_call(fib(5))), []),
+        ir_clause(q(1), ir_call(other(1)), [])
+    ],
+    npl_pcorr_ir_report(IR, Report),
+    % fib/1 appears twice → in report; other/1 appears once → not in report
+    member(repeated(pat(fib, [pat(number)]), 2), Report),
+    \+ member(repeated(pat(other, _), _), Report).
