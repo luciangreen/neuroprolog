@@ -72,6 +72,12 @@ npl_ncm_entry(
 )
 ```
 
+> **Note**: `npl_ncm_entry/5` is the internal dynamic fact.  The public
+> API predicates (`npl_ncm_lookup_by_marker/2`, `npl_ncm_lookup_by_head/2`,
+> `npl_ncm_all/1`, `npl_ncm_build_from_ir/4`) return results as `ncm/5`
+> compound terms with the same argument order, providing a lightweight
+> distinction between stored facts and returned values.
+
 The `Meta` list always includes:
 
 | Key | Value |
