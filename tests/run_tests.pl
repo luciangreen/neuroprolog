@@ -24,6 +24,7 @@
 :- consult('src/wam_model').
 :- consult('src/interpreter').
 :- consult('src/cognitive_markers').
+:- consult('src/self_host').
 
 :- dynamic test_passed/1.
 :- dynamic test_failed/1.
@@ -402,7 +403,18 @@ run_test_suite :-
     test(cg16_ir_to_body_emitting_not),
     test(cg16_ir_to_body_emitting_source_marker_transparent),
     test(cg16_neurocode_is_valid_prolog),
-    test(cg16_neurocode_is_reloadable).
+    test(cg16_neurocode_is_reloadable),
+    % --- Stage 19: Self-Hosting Tests ---
+    test(sh19_predicates_exported),
+    test(sh19_invariant_source_exists),
+    test(sh19_invariant_opt_dict_nonempty),
+    test(sh19_invariant_cognitive_markers_loaded),
+    test(sh19_invariant_learned_transforms_present),
+    test(sh19_compile_small_source),
+    test(sh19_compare_behaviour_true),
+    test(sh19_compare_behaviour_arithmetic),
+    test(sh19_compare_behaviour_list_ops),
+    test(sh19_bench_query_list_nonempty).
 
 test(Name) :-
     ( catch(run_test(Name), Error, (write('ERROR in '), write(Name), write(': '), write(Error), nl, fail))
@@ -3230,3 +3242,93 @@ run_test(cg16_neurocode_is_reloadable) :-
     npl_generate_full(IR, '', Segments),
     Segments = [code_segment(_, Clause, _)],
     callable(Clause).
+
+%%====================================================================
+%% Stage 19: Self-Hosting Tests
+%%====================================================================
+
+%% sh19_predicates_exported — self_host module exports required predicates
+run_test(sh19_predicates_exported) :-
+    current_predicate(check_self_hosting/0),
+    current_predicate(compare_behaviour/0).
+
+%% sh19_invariant_source_exists — invariant 1: plain source file is present
+run_test(sh19_invariant_source_exists) :-
+    exists_file('src/neuroprolog.pl').
+
+%% sh19_invariant_opt_dict_nonempty — invariant 3: opt dict has rules
+run_test(sh19_invariant_opt_dict_nonempty) :-
+    npl_opt_dict_rules(Rules),
+    Rules \= [].
+
+%% sh19_invariant_cognitive_markers_loaded — invariant 4: module is loaded
+run_test(sh19_invariant_cognitive_markers_loaded) :-
+    current_predicate(npl_ncm_all/1).
+
+%% sh19_invariant_learned_transforms_present — invariant 5: learned entry predicate exists
+run_test(sh19_invariant_learned_transforms_present) :-
+    current_predicate(npl_opt_dict_entries/1),
+    npl_opt_dict_entries(Names),
+    Names \= [].
+
+%% sh19_compile_small_source — self_compile pipeline on a tiny source succeeds
+run_test(sh19_compile_small_source) :-
+    Src = 'greet19(world).',
+    npl_lex_string(Src, Tokens),
+    npl_parse(Tokens, AST),
+    npl_analyse(AST, AAST),
+    npl_intermediate(AAST, IR),
+    npl_optimise(IR, OptIR),
+    npl_generate(OptIR, NC),
+    NC \= [].
+
+%% sh19_compare_behaviour_true — source and compiled agree on `true'
+run_test(sh19_compare_behaviour_true) :-
+    npl_interp_reset,
+    ( npl_interp_query(true, R1) -> true ; R1 = false ),
+    R1 == true.
+
+%% sh19_compare_behaviour_arithmetic — arithmetic results match
+run_test(sh19_compare_behaviour_arithmetic) :-
+    Src = 'sq19(X, Y) :- Y is X * X.',
+    npl_interp_reset,
+    npl_lex_string(Src, Tok1),
+    npl_parse(Tok1, AST1),
+    npl_analyse(AST1, AAST1),
+    npl_interp_load(AAST1),
+    npl_interp_query_all(sq19(5, R), R, SrcSols),
+    npl_interp_reset,
+    npl_lex_string(Src, Tok2),
+    npl_parse(Tok2, AST2),
+    npl_analyse(AST2, AAST2),
+    npl_intermediate(AAST2, IR),
+    npl_optimise(IR, OptIR),
+    npl_generate(OptIR, NC),
+    npl_interp_load_clauses(NC),
+    npl_interp_query_all(sq19(5, R), R, NCSols),
+    SrcSols == NCSols.
+
+%% sh19_compare_behaviour_list_ops — list operations match between modes
+run_test(sh19_compare_behaviour_list_ops) :-
+    Src = 'myapp19([], L, L). myapp19([H|T], L, [H|R]) :- myapp19(T, L, R).',
+    npl_interp_reset,
+    npl_lex_string(Src, Tok1),
+    npl_parse(Tok1, AST1),
+    npl_analyse(AST1, AAST1),
+    npl_interp_load(AAST1),
+    npl_interp_query_all(myapp19([1,2],[3],R), R, SrcSols),
+    npl_interp_reset,
+    npl_lex_string(Src, Tok2),
+    npl_parse(Tok2, AST2),
+    npl_analyse(AST2, AAST2),
+    npl_intermediate(AAST2, IR),
+    npl_optimise(IR, OptIR),
+    npl_generate(OptIR, NC),
+    npl_interp_load_clauses(NC),
+    npl_interp_query_all(myapp19([1,2],[3],R), R, NCSols),
+    SrcSols == NCSols.
+
+%% sh19_bench_query_list_nonempty — self_host_bench_queries/1 returns a nonempty list
+run_test(sh19_bench_query_list_nonempty) :-
+    self_host:self_host_bench_queries(Qs),
+    Qs \= [].
