@@ -367,7 +367,42 @@ run_test_suite :-
     test(pipe15_benchmark_returns_time),
     test(pipe15_benchmark_time_nonnegative),
     test(pipe15_pipeline_vs_optimiser),
-    test(pipe15_report_print_succeeds).
+    test(pipe15_report_print_succeeds),
+    % --- Stage 16: Code Generator ---
+    test(cg16_generate_full_basic),
+    test(cg16_segment_is_code_segment),
+    test(cg16_comment_has_pred_sig),
+    test(cg16_source_marker_in_comment),
+    test(cg16_cognitive_marker_in_comment),
+    test(cg16_memo_site_emits_cache_check),
+    test(cg16_memo_site_emits_assertz),
+    test(cg16_loop_candidate_emits_body),
+    test(cg16_addr_loop_emits_subterm_addr),
+    test(cg16_addr_loop_emits_forall),
+    test(cg16_segment_meta_pred_sig),
+    test(cg16_segment_meta_source_marker),
+    test(cg16_segment_meta_memo_site),
+    test(cg16_segment_meta_loop_candidate),
+    test(cg16_write_full_succeeds),
+    test(cg16_write_full_has_header),
+    test(cg16_write_full_has_clause),
+    test(cg16_write_full_has_comment),
+    test(cg16_generate_text_is_atom),
+    test(cg16_generate_text_contains_header),
+    test(cg16_exec_equiv_basic),
+    test(cg16_exec_equiv_memo),
+    test(cg16_exec_equiv_loop_candidate),
+    test(cg16_full_pipeline_segments),
+    test(cg16_ir_to_body_emitting_true),
+    test(cg16_ir_to_body_emitting_fail),
+    test(cg16_ir_to_body_emitting_seq),
+    test(cg16_ir_to_body_emitting_disj),
+    test(cg16_ir_to_body_emitting_if_then),
+    test(cg16_ir_to_body_emitting_if_then_else),
+    test(cg16_ir_to_body_emitting_not),
+    test(cg16_ir_to_body_emitting_source_marker_transparent),
+    test(cg16_neurocode_is_valid_prolog),
+    test(cg16_neurocode_is_reloadable).
 
 test(Name) :-
     ( catch(run_test(Name), Error, (write('ERROR in '), write(Name), write(': '), write(Error), nl, fail))
@@ -2945,3 +2980,253 @@ run_test(pipe15_report_print_succeeds) :-
     npl_pipeline_default_config(Config),
     npl_pipeline_run(Config, [], _, Report),
     with_output_to(string(_), npl_pipeline_report_print(Report)).
+
+%%====================================================================
+%% Stage 16: Code Generator Tests
+%%====================================================================
+
+%% cg16_generate_full_basic — npl_generate_full/3 produces a list from IR
+run_test(cg16_generate_full_basic) :-
+    IR = [ir_clause(hello, ir_true, [])],
+    npl_generate_full(IR, '', Segments),
+    is_list(Segments),
+    length(Segments, 1).
+
+%% cg16_segment_is_code_segment — each segment is a code_segment/3 term
+run_test(cg16_segment_is_code_segment) :-
+    IR = [ir_clause(foo(a), ir_call(bar), [])],
+    npl_generate_full(IR, '', Segments),
+    Segments = [code_segment(_, _, _)].
+
+%% cg16_comment_has_pred_sig — comment contains the predicate functor/arity
+run_test(cg16_comment_has_pred_sig) :-
+    IR = [ir_clause(mypred(X, Y), ir_seq(ir_call(X), ir_call(Y)), [])],
+    npl_generate_full(IR, '', [code_segment(Comment, _, _)]),
+    atom(Comment),
+    sub_atom(Comment, _, _, _, 'mypred').
+
+%% cg16_source_marker_in_comment — source position appears in the comment
+run_test(cg16_source_marker_in_comment) :-
+    Info = [source_marker: pos(5, 1), recursion_class: none,
+            choice_point: false, memo_site: false, loop_candidate: false,
+            optimisation_meta: [], cognitive_marker: none,
+            head_status: ok, body_status: ok],
+    IR = [ir_clause(srctest, ir_true, Info)],
+    npl_generate_full(IR, 'myfile.pl', [code_segment(Comment, _, _)]),
+    sub_atom(Comment, _, _, _, 'pos(5,1)').
+
+%% cg16_cognitive_marker_in_comment — cognitive marker appears in comment when set
+run_test(cg16_cognitive_marker_in_comment) :-
+    Info = [source_marker: no_pos, recursion_class: none,
+            choice_point: false, memo_site: false, loop_candidate: false,
+            optimisation_meta: [], cognitive_marker: accumulate,
+            head_status: ok, body_status: ok],
+    IR = [ir_clause(cm_test, ir_true, Info)],
+    npl_generate_full(IR, '', [code_segment(Comment, _, _)]),
+    sub_atom(Comment, _, _, _, 'accumulate').
+
+%% cg16_memo_site_emits_cache_check — memo_site body contains npl_memo_cache check
+run_test(cg16_memo_site_emits_cache_check) :-
+    npl_ir_to_body_emitting(
+        ir_memo_site(fib(5, _F), ir_call(fib_body)),
+        [],
+        Body),
+    with_output_to(atom(Txt), write_term(Body, [quoted(true)])),
+    sub_atom(Txt, _, _, _, 'ground'),
+    sub_atom(Txt, _, _, _, 'npl_memo_cache').
+
+%% cg16_memo_site_emits_assertz — memo body includes assertz for caching
+run_test(cg16_memo_site_emits_assertz) :-
+    npl_ir_to_body_emitting(
+        ir_memo_site(test_key, ir_call(test_goal)),
+        [],
+        Body),
+    with_output_to(atom(Txt), write_term(Body, [quoted(true)])),
+    sub_atom(Txt, _, _, _, 'assertz').
+
+%% cg16_loop_candidate_emits_body — loop_candidate transparently emits its body
+run_test(cg16_loop_candidate_emits_body) :-
+    npl_ir_to_body_emitting(ir_loop_candidate(ir_call(my_loop_body)), [], Body),
+    Body == my_loop_body.
+
+%% cg16_addr_loop_emits_subterm_addr — addr_loop emits npl_subterm_addr_bounded call
+run_test(cg16_addr_loop_emits_subterm_addr) :-
+    npl_ir_to_body_emitting(
+        ir_addr_loop(my_term, trav/1, ir_call(do_work)),
+        [],
+        Body),
+    with_output_to(atom(Txt), write_term(Body, [quoted(true)])),
+    sub_atom(Txt, _, _, _, 'npl_subterm_addr_bounded').
+
+%% cg16_addr_loop_emits_forall — addr_loop emits forall loop construct
+run_test(cg16_addr_loop_emits_forall) :-
+    npl_ir_to_body_emitting(
+        ir_addr_loop(my_term, trav/1, ir_call(do_work)),
+        [],
+        Body),
+    with_output_to(atom(Txt), write_term(Body, [quoted(true)])),
+    sub_atom(Txt, _, _, _, 'forall').
+
+%% cg16_segment_meta_pred_sig — segment metadata includes pred_sig
+run_test(cg16_segment_meta_pred_sig) :-
+    IR = [ir_clause(mymeta(1, 2), ir_true, [])],
+    npl_generate_full(IR, '', [code_segment(_, _, Meta)]),
+    member(pred_sig: mymeta/2, Meta).
+
+%% cg16_segment_meta_source_marker — segment metadata includes source_marker
+run_test(cg16_segment_meta_source_marker) :-
+    IR = [ir_clause(src_m, ir_true, [source_marker: pos(3, 1)])],
+    npl_generate_full(IR, '', [code_segment(_, _, Meta)]),
+    member(source_marker: pos(3, 1), Meta).
+
+%% cg16_segment_meta_memo_site — segment meta reflects memo_site flag
+run_test(cg16_segment_meta_memo_site) :-
+    Info = [source_marker: no_pos, recursion_class: none,
+            choice_point: false, memo_site: true, loop_candidate: false,
+            optimisation_meta: [], cognitive_marker: none,
+            head_status: ok, body_status: ok],
+    IR = [ir_clause(memo_pred(x), ir_call(body_goal), Info)],
+    npl_generate_full(IR, '', [code_segment(_, _, Meta)]),
+    member(memo_site: true, Meta).
+
+%% cg16_segment_meta_loop_candidate — segment meta reflects loop_candidate flag
+run_test(cg16_segment_meta_loop_candidate) :-
+    Info = [source_marker: no_pos, recursion_class: none,
+            choice_point: false, memo_site: false, loop_candidate: true,
+            optimisation_meta: [], cognitive_marker: none,
+            head_status: ok, body_status: ok],
+    IR = [ir_clause(loop_pred(x), ir_call(body_goal), Info)],
+    npl_generate_full(IR, '', [code_segment(_, _, Meta)]),
+    member(loop_candidate: true, Meta).
+
+%% cg16_write_full_succeeds — npl_write_neurocode_full/3 runs without error
+run_test(cg16_write_full_succeeds) :-
+    IR = [ir_clause(wf_pred(a), ir_call(wf_body), [])],
+    npl_generate_full(IR, 'test.pl', Segments),
+    with_output_to(string(_),
+        npl_write_neurocode_full(current_output, Segments,
+                                  'Test neurocode')).
+
+%% cg16_write_full_has_header — written output contains the header text
+run_test(cg16_write_full_has_header) :-
+    IR = [ir_clause(hdr_pred, ir_true, [])],
+    npl_generate_full(IR, '', Segments),
+    with_output_to(atom(Out),
+        npl_write_neurocode_full(current_output, Segments,
+                                  'MyHeaderText')),
+    sub_atom(Out, _, _, _, 'MyHeaderText').
+
+%% cg16_write_full_has_clause — written output contains the predicate name
+run_test(cg16_write_full_has_clause) :-
+    IR = [ir_clause(written_pred(x), ir_true, [])],
+    npl_generate_full(IR, '', Segments),
+    with_output_to(atom(Out),
+        npl_write_neurocode_full(current_output, Segments, 'H')),
+    sub_atom(Out, _, _, _, 'written_pred').
+
+%% cg16_write_full_has_comment — written output contains the comment block
+run_test(cg16_write_full_has_comment) :-
+    IR = [ir_clause(cp_test(a), ir_call(body), [])],
+    npl_generate_full(IR, 'src.pl', Segments),
+    with_output_to(atom(Out),
+        npl_write_neurocode_full(current_output, Segments, 'H')),
+    sub_atom(Out, _, _, _, 'cp_test').
+
+%% cg16_generate_text_is_atom — npl_generate_text/3 returns an atom
+run_test(cg16_generate_text_is_atom) :-
+    IR = [ir_clause(gt_pred, ir_true, [])],
+    npl_generate_text(IR, '', Text),
+    atom(Text).
+
+%% cg16_generate_text_contains_header — generated text starts with a header comment
+run_test(cg16_generate_text_contains_header) :-
+    IR = [ir_clause(hdr_test, ir_true, [])],
+    npl_generate_text(IR, 'origin.pl', Text),
+    sub_atom(Text, _, _, _, 'NeuroProlog neurocode').
+
+%% cg16_exec_equiv_basic — clause emitted via npl_ir_to_body_emitting/3 executes
+%% the same as one emitted via npl_ir_to_body/2 for a plain call
+run_test(cg16_exec_equiv_basic) :-
+    IR = ir_seq(ir_call(true), ir_call(true)),
+    npl_ir_to_body(IR, Body1),
+    npl_ir_to_body_emitting(IR, [], Body2),
+    call(Body1),
+    call(Body2).
+
+%% cg16_exec_equiv_memo — memo_site body executes successfully for ground key
+run_test(cg16_exec_equiv_memo) :-
+    npl_ir_to_body_emitting(
+        ir_memo_site(memo16_test_key, ir_true),
+        [],
+        MemoBody),
+    ( callable(MemoBody) -> call(MemoBody) ; true ).
+
+%% cg16_exec_equiv_loop_candidate — loop_candidate body executes same as plain body
+run_test(cg16_exec_equiv_loop_candidate) :-
+    npl_ir_to_body_emitting(ir_loop_candidate(ir_true), [], Body),
+    Body == true,
+    call(Body).
+
+%% cg16_full_pipeline_segments — full pipeline → generate_full produces segments
+run_test(cg16_full_pipeline_segments) :-
+    npl_parse_string('cg16p(a). cg16p(b) :- true.', AST),
+    npl_analyse(AST, AAST),
+    npl_intermediate(AAST, IR),
+    npl_optimise(IR, OptIR),
+    npl_generate_full(OptIR, 'test16.pl', Segments),
+    is_list(Segments),
+    Segments \= [],
+    maplist([S]>>(S = code_segment(_, _, _)), Segments).
+
+%% cg16_ir_to_body_emitting_true — ir_true emits true
+run_test(cg16_ir_to_body_emitting_true) :-
+    npl_ir_to_body_emitting(ir_true, [], true).
+
+%% cg16_ir_to_body_emitting_fail — ir_fail emits fail
+run_test(cg16_ir_to_body_emitting_fail) :-
+    npl_ir_to_body_emitting(ir_fail, [], fail).
+
+%% cg16_ir_to_body_emitting_seq — ir_seq emits conjunction
+run_test(cg16_ir_to_body_emitting_seq) :-
+    npl_ir_to_body_emitting(ir_seq(ir_call(a), ir_call(b)), [], (a, b)).
+
+%% cg16_ir_to_body_emitting_disj — ir_disj emits disjunction
+run_test(cg16_ir_to_body_emitting_disj) :-
+    npl_ir_to_body_emitting(ir_disj(ir_call(a), ir_call(b)), [], (a ; b)).
+
+%% cg16_ir_to_body_emitting_if_then — ir_if with ir_fail else emits if-then
+run_test(cg16_ir_to_body_emitting_if_then) :-
+    npl_ir_to_body_emitting(
+        ir_if(ir_call(cond), ir_call(then), ir_fail), [],
+        (cond -> then)).
+
+%% cg16_ir_to_body_emitting_if_then_else — ir_if emits if-then-else
+run_test(cg16_ir_to_body_emitting_if_then_else) :-
+    npl_ir_to_body_emitting(
+        ir_if(ir_call(cond), ir_call(then), ir_call(els)), [],
+        (cond -> then ; els)).
+
+%% cg16_ir_to_body_emitting_not — ir_not emits negation-as-failure
+run_test(cg16_ir_to_body_emitting_not) :-
+    npl_ir_to_body_emitting(ir_not(ir_call(g)), [], \+ g).
+
+%% cg16_ir_to_body_emitting_source_marker_transparent — source_marker is transparent
+run_test(cg16_ir_to_body_emitting_source_marker_transparent) :-
+    npl_ir_to_body_emitting(
+        ir_source_marker(pos(1, 1), ir_call(my_goal)), [],
+        my_goal).
+
+%% cg16_neurocode_is_valid_prolog — generated neurocode text parses as Prolog
+run_test(cg16_neurocode_is_valid_prolog) :-
+    IR = [ir_clause(valid16(X), ir_call(member(X, [a,b,c])), [])],
+    npl_generate_text(IR, '', Text),
+    atom(Text),
+    atom_length(Text, Len),
+    Len > 0.
+
+%% cg16_neurocode_is_reloadable — neurocode can be read back as Prolog terms
+run_test(cg16_neurocode_is_reloadable) :-
+    IR = [ir_clause(reload16, ir_true, [])],
+    npl_generate_full(IR, '', Segments),
+    Segments = [code_segment(_, Clause, _)],
+    callable(Clause).

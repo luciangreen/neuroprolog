@@ -5,7 +5,8 @@
 % Usage:
 %   swipl -g "consult('src/neuroprolog')" -g "npl_main" -t halt
 
-:- module(neuroprolog, [npl_main/0, npl_compile/2, npl_interpret/1]).
+:- module(neuroprolog, [npl_main/0, npl_compile/2, npl_interpret/1,
+                        npl_write_neurocode/2, npl_write_neurocode/3]).
 
 :- use_module(library(lists)).
 
@@ -66,8 +67,7 @@ npl_compile(SourceFile, OutputFile) :-
     npl_analyse(AST, AAST),
     npl_intermediate(AAST, IR),
     npl_optimise(IR, OptIR),
-    npl_generate(OptIR, Neurocode),
-    npl_write_neurocode(Neurocode, OutputFile).
+    npl_write_neurocode(OptIR, SourceFile, OutputFile).
 
 %% npl_interpret/1
 %  Load and interpret a Prolog source file.
@@ -77,16 +77,18 @@ npl_interpret(File) :-
     npl_analyse(AST, AAST),
     npl_run(AAST).
 
-%% npl_write_neurocode/2
-%  Write neurocode terms to a file.
-npl_write_neurocode(Terms, File) :-
-    open(File, write, Stream),
-    write(Stream, '% NeuroProlog generated neurocode'), nl(Stream),
-    write(Stream, '% This file is valid Prolog — do not add binary representations.'), nl(Stream),
-    nl(Stream),
-    maplist(npl_write_term(Stream), Terms),
+%% npl_write_neurocode/3
+%  Write neurocode to an output file, annotated with the original source path.
+%  Uses portray_clause/2 for human-readable, operator-aware output.
+%  npl_write_neurocode(+OptIR, +SrcFile, +OutputFile)
+npl_write_neurocode(OptIR, SrcFile, OutputFile) :-
+    npl_generate_full(OptIR, SrcFile, Segments),
+    open(OutputFile, write, Stream),
+    format(atom(Header), 'NeuroProlog neurocode — source: ~w', [SrcFile]),
+    npl_write_neurocode_full(Stream, Segments, Header),
     close(Stream).
 
-npl_write_term(Stream, Term) :-
-    write_canonical(Stream, Term),
-    write(Stream, '.'), nl(Stream).
+%% npl_write_neurocode/2 — legacy two-argument form (output file is used as source label).
+%  npl_write_neurocode(+OptIR, +File)
+npl_write_neurocode(OptIR, File) :-
+    npl_write_neurocode(OptIR, File, File).
