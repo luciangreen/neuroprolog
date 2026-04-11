@@ -44,6 +44,9 @@ npl_ir_to_body(ir_memo_site(_, IRBody), Body) :- !,
     npl_ir_to_body(IRBody, Body).
 npl_ir_to_body(ir_loop_candidate(IRBody), Body) :- !,
     npl_ir_to_body(IRBody, Body).
+%% Stage 10 address-loop node — emit underlying body (correctness-preserving fallback):
+npl_ir_to_body(ir_addr_loop(_, _, IRBody), Body) :- !,
+    npl_ir_to_body(IRBody, Body).
 npl_ir_to_body(ir_choice_point([Alt]), Body) :- !,
     npl_ir_to_body(Alt, Body).
 npl_ir_to_body(ir_choice_point([Alt|Alts]), (BodyA ; BodyB)) :- !,
