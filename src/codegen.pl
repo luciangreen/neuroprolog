@@ -302,8 +302,10 @@ npl_ir_to_body_emitting(ir_loop_candidate(IRBody), Info, Body) :- !,
 %% npl_cg_loop_max_depth/1
 %  npl_cg_loop_max_depth(?MaxDepth)
 %  Default maximum depth for bounded subterm address iteration in generated code.
-%  A depth of 10 is conservative but handles typical clause structure.  Override
-%  by asserting a new fact before code generation if deeper traversal is needed.
+%  A depth of 10 is conservative but handles typical clause structure.
+%  To customise, redefine this predicate in the module that loads codegen,
+%  or pass the depth explicitly via npl_ir_to_body_emitting/3 by specialising
+%  the ir_addr_loop case in a wrapper.
 npl_cg_loop_max_depth(10).
 
 %% Address loop — emit bounded subterm iteration using npl_subterm_addr_bounded/3.

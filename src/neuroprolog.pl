@@ -92,7 +92,3 @@ npl_write_neurocode(OptIR, SrcFile, OutputFile) :-
 %  npl_write_neurocode(+OptIR, +File)
 npl_write_neurocode(OptIR, File) :-
     npl_write_neurocode(OptIR, File, File).
-
-npl_write_term(Stream, Term) :-
-    portray_clause(Stream, Term),
-    nl(Stream).

@@ -3013,7 +3013,7 @@ run_test(cg16_source_marker_in_comment) :-
             head_status: ok, body_status: ok],
     IR = [ir_clause(srctest, ir_true, Info)],
     npl_generate_full(IR, 'myfile.pl', [code_segment(Comment, _, _)]),
-    sub_atom(Comment, _, _, _, 'pos(5').
+    sub_atom(Comment, _, _, _, 'pos(5,1)').
 
 %% cg16_cognitive_marker_in_comment — cognitive marker appears in comment when set
 run_test(cg16_cognitive_marker_in_comment) :-
