@@ -11,6 +11,7 @@
 :- use_module('src/memoisation').
 :- use_module('src/subterm_addressing').
 :- use_module('src/optimisation_dictionary').
+:- use_module('src/nested_recursion').
 
 %% npl_optimise/2
 %  npl_optimise(+IR, -OptIR)
@@ -23,8 +24,9 @@ npl_apply_optimisations(IR, OptIR) :-
     npl_opt_dict_rules(Rules),
     npl_apply_rules(Rules, IR, IR1),
     npl_gaussian_reduce(IR1, IR2),
-    npl_memoisation_pass(IR2, IR3),
-    npl_subterm_address_pass(IR3, OptIR).
+    npl_nested_eliminate_pass(IR2, IR3),
+    npl_memoisation_pass(IR3, IR4),
+    npl_subterm_address_pass(IR4, OptIR).
 
 %% npl_apply_rules/3
 npl_apply_rules([], IR, IR).
