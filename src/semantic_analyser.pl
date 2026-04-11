@@ -75,7 +75,7 @@ npl_head_sig(_, unknown/0).
 %% npl_analyse_node(+Sigs, +FullAST, +Node, -AnnotatedNode)
 
 %% New AST: fact — body is implicitly true
-npl_analyse_node(Sigs, AST, fact(Head, _Pos, Annots, _M),
+npl_analyse_node(Sigs, AST, fact(Head, Pos, Annots, _M),
                  analysed(Head, true, Props)) :- !,
     npl_check_head(Head, Sigs, HeadInfo),
     npl_check_vars(Head, true, VarInfo),
@@ -96,10 +96,11 @@ npl_analyse_node(Sigs, AST, fact(Head, _Pos, Annots, _M),
               memoisation_suitable:MemoOk,
               gaussian_elimination_suitable:GaussOk,
               simplification_opportunities:Simps,
-              cognitive_code_marker:Marker ].
+              cognitive_code_marker:Marker,
+              source_pos:Pos ].
 
 %% New AST: rule
-npl_analyse_node(Sigs, AST, rule(Head, Body, _Pos, Annots, _M),
+npl_analyse_node(Sigs, AST, rule(Head, Body, Pos, Annots, _M),
                  analysed(Head, Body, Props)) :- !,
     npl_check_head(Head, Sigs, HeadInfo),
     npl_check_body(Body, Sigs, BodyInfo),
@@ -121,7 +122,8 @@ npl_analyse_node(Sigs, AST, rule(Head, Body, _Pos, Annots, _M),
               memoisation_suitable:MemoOk,
               gaussian_elimination_suitable:GaussOk,
               simplification_opportunities:Simps,
-              cognitive_code_marker:Marker ].
+              cognitive_code_marker:Marker,
+              source_pos:Pos ].
 
 %% New AST: directive — pass through unchanged
 npl_analyse_node(_Sigs, _AST, directive(Goal, Pos, A, M),

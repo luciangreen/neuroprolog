@@ -187,7 +187,21 @@ run_test_suite :-
     test(interp_prelude),
     test(interp_neurocode),
     test(interp_query_runner),
-    test(interp_load_ast).
+    test(interp_load_ast),
+    % --- Stage 8: Intermediate Representation ---
+    test(ir8_source_marker),
+    test(ir8_predicate_def_single),
+    test(ir8_predicate_def_grouped),
+    test(ir8_choice_point_multi),
+    test(ir8_choice_point_single),
+    test(ir8_memo_site),
+    test(ir8_loop_candidate),
+    test(ir8_recursion_class),
+    test(ir8_optimisation_meta),
+    test(ir8_info_get_list),
+    test(ir8_info_get_legacy),
+    test(ir8_new_body_nodes_reversible),
+    test(ir8_full_pipeline).
 
 test(Name) :-
     ( catch(run_test(Name), Error, (write('ERROR in '), write(Name), write(': '), write(Error), nl, fail))
@@ -1227,3 +1241,126 @@ run_test(interp_load_ast) :-
     npl_interp_query(animal(cat), true),
     npl_interp_query(animal(dog), true),
     npl_interp_query(animal(bird), false).
+
+%% =====================================================================
+%% Stage 8 tests — Intermediate Representation
+%% =====================================================================
+
+%% ir8_source_marker — source position is preserved in IRInfo after full pipeline
+run_test(ir8_source_marker) :-
+    npl_parse_string_pos('foo(1).', AST),
+    npl_analyse(AST, AAST),
+    npl_intermediate(AAST, [ir_clause(foo(1), ir_true, IRInfo)]),
+    npl_ir_info_get(IRInfo, source_marker, Pos),
+    Pos = pos(1, 1).
+
+%% ir8_predicate_def_single — npl_ir_full/2 wraps a single clause in ir_predicate_def
+run_test(ir8_predicate_def_single) :-
+    AAST = [analysed(greet, ir_call(hello), [])],
+    npl_ir_full(AAST, [ir_predicate_def(greet/0, [ir_clause(greet, _, _)], Meta)]),
+    member(choice_point:false, Meta).
+
+%% ir8_predicate_def_grouped — clauses for the same predicate are grouped together
+run_test(ir8_predicate_def_grouped) :-
+    npl_parse_string('color(red). color(green). color(blue).', AST),
+    npl_analyse(AST, AAST),
+    npl_ir_full(AAST, PredDefs),
+    PredDefs = [ir_predicate_def(color/1, Clauses, Meta)],
+    length(Clauses, 3),
+    member(choice_point:true, Meta).
+
+%% ir8_choice_point_multi — multi-clause predicate has choice_point:true in each ir_clause
+run_test(ir8_choice_point_multi) :-
+    npl_parse_string('shape(circle). shape(square).', AST),
+    npl_analyse(AST, AAST),
+    npl_intermediate(AAST, IR),
+    IR = [ir_clause(_, _, Info1), ir_clause(_, _, Info2)],
+    npl_ir_info_get(Info1, choice_point, true),
+    npl_ir_info_get(Info2, choice_point, true).
+
+%% ir8_choice_point_single — a unique predicate has choice_point:false
+run_test(ir8_choice_point_single) :-
+    npl_parse_string('unique_pred_xyz(a).', AST),
+    npl_analyse(AST, AAST),
+    npl_intermediate(AAST, [ir_clause(_, _, Info)]),
+    npl_ir_info_get(Info, choice_point, false).
+
+%% ir8_memo_site — a pure predicate is annotated memo_site:true in IRInfo
+run_test(ir8_memo_site) :-
+    npl_parse_string('pure_fn(1, one).', AST),
+    npl_analyse(AST, AAST),
+    npl_intermediate(AAST, [ir_clause(_, _, Info)]),
+    npl_ir_info_get(Info, memo_site, true).
+
+%% ir8_loop_candidate — a tail-recursive predicate is annotated loop_candidate:true
+run_test(ir8_loop_candidate) :-
+    npl_parse_string('count(0). count(N) :- N > 0, N1 is N - 1, count(N1).', AST),
+    npl_analyse(AST, AAST),
+    npl_intermediate(AAST, IR),
+    last(IR, ir_clause(_, _, Info)),
+    npl_ir_info_get(Info, loop_candidate, true).
+
+%% ir8_recursion_class — tail-recursive clause carries recursion_class:tail in IRInfo
+run_test(ir8_recursion_class) :-
+    npl_parse_string('loop(0). loop(N) :- N > 0, N1 is N - 1, loop(N1).', AST),
+    npl_analyse(AST, AAST),
+    npl_intermediate(AAST, IR),
+    last(IR, ir_clause(_, _, Info)),
+    npl_ir_info_get(Info, recursion_class, tail).
+
+%% ir8_optimisation_meta — a tail-recursive predicate carries optimisation hints
+run_test(ir8_optimisation_meta) :-
+    npl_parse_string('go(0). go(N) :- N > 0, N1 is N - 1, go(N1).', AST),
+    npl_analyse(AST, AAST),
+    npl_intermediate(AAST, IR),
+    last(IR, ir_clause(_, _, Info)),
+    npl_ir_info_get(Info, optimisation_meta, Ops),
+    member(tail_call_optimisation, Ops).
+
+%% ir8_info_get_list — npl_ir_info_get/3 works with the new list Info format
+run_test(ir8_info_get_list) :-
+    Info = [source_marker:pos(1,1), memo_site:true, loop_candidate:false],
+    npl_ir_info_get(Info, source_marker, pos(1,1)),
+    npl_ir_info_get(Info, memo_site, true),
+    npl_ir_info_get(Info, loop_candidate, false).
+
+%% ir8_info_get_legacy — npl_ir_info_get/3 also works with the old info(...) format
+run_test(ir8_info_get_legacy) :-
+    npl_ir_info_get(info(head:ok, body:ok), head, ok),
+    npl_ir_info_get(info(head:ok, body:ok), body, ok).
+
+%% ir8_new_body_nodes_reversible — new IR body nodes round-trip through npl_ir_to_body/2
+run_test(ir8_new_body_nodes_reversible) :-
+    %% ir_source_marker is transparent — yields the wrapped body
+    npl_ir_to_body(ir_source_marker(pos(1,1), ir_call(foo)), foo),
+    %% ir_memo_site is transparent — yields the wrapped body
+    npl_ir_to_body(ir_memo_site(f(1), ir_call(bar)), bar),
+    %% ir_loop_candidate is transparent — yields the wrapped body
+    npl_ir_to_body(ir_loop_candidate(ir_call(baz)), baz),
+    %% ir_choice_point/1 with one alternative yields that alternative's body
+    npl_ir_to_body(ir_choice_point([ir_call(left)]), left),
+    %% ir_choice_point/1 with two alternatives yields a disjunction
+    npl_ir_to_body(ir_choice_point([ir_call(a), ir_call(b)]), (a ; b)).
+
+%% ir8_full_pipeline — AST-to-IR conversion end-to-end, checking all IR fields
+run_test(ir8_full_pipeline) :-
+    %% Parse a two-clause predicate with a tail-recursive rule using positioned tokens
+    npl_parse_string_pos(
+        'fib(0, 0). fib(1, 1). fib(N, F) :- N > 1, N1 is N-1, N2 is N-2, fib(N1,F1), fib(N2,F2), F is F1+F2.',
+        AST),
+    npl_analyse(AST, AAST),
+    %% Flat IR: all three clauses present
+    npl_intermediate(AAST, FlatIR),
+    length(FlatIR, 3),
+    %% All clauses share the same functor
+    FlatIR = [ir_clause(fib(_,_), _, Info1)|_],
+    %% Source position is captured
+    npl_ir_info_get(Info1, source_marker, pos(1,1)),
+    %% Grouped IR: one predicate definition with three clauses
+    npl_ir_full(AAST, [ir_predicate_def(fib/2, PredClauses, PMeta)]),
+    length(PredClauses, 3),
+    %% Predicate-level metadata reflects multiple clauses (choice point)
+    member(choice_point:true, PMeta),
+    %% The recursive clause carries recursion class and optimisation hints
+    last(FlatIR, ir_clause(_, _, LastInfo)),
+    npl_ir_info_get(LastInfo, recursion_class, linear).

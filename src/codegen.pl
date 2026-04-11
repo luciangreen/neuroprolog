@@ -33,7 +33,19 @@ npl_ir_to_body(ir_disj(A, B), (BodyA ; BodyB)) :- !,
 npl_ir_to_body(ir_if(Cond, Then, ir_fail), (CondB -> ThenB)) :- !,
     npl_ir_to_body(Cond, CondB),
     npl_ir_to_body(Then, ThenB).
-npl_ir_to_body(ir_if(Cond, Then, Else), (CondB -> ThenB ; ElseB)) :-
+npl_ir_to_body(ir_if(Cond, Then, Else), (CondB -> ThenB ; ElseB)) :- !,
     npl_ir_to_body(Cond, CondB),
     npl_ir_to_body(Then, ThenB),
     npl_ir_to_body(Else, ElseB).
+%% Stage 8 new body nodes — transparent wrappers for source and semantics:
+npl_ir_to_body(ir_source_marker(_, IRBody), Body) :- !,
+    npl_ir_to_body(IRBody, Body).
+npl_ir_to_body(ir_memo_site(_, IRBody), Body) :- !,
+    npl_ir_to_body(IRBody, Body).
+npl_ir_to_body(ir_loop_candidate(IRBody), Body) :- !,
+    npl_ir_to_body(IRBody, Body).
+npl_ir_to_body(ir_choice_point([Alt]), Body) :- !,
+    npl_ir_to_body(Alt, Body).
+npl_ir_to_body(ir_choice_point([Alt|Alts]), (BodyA ; BodyB)) :- !,
+    npl_ir_to_body(Alt, BodyA),
+    npl_ir_to_body(ir_choice_point(Alts), BodyB).
