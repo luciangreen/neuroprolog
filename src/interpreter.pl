@@ -80,16 +80,23 @@ npl_interp_reset :-
 
 %% npl_interp_assert/1 — assert a clause at the end of the database
 %  Accepts facts (plain terms) and rules ((Head :- Body)).
+%  var(Name) compound terms (produced by the NeuroProlog parser) are
+%  converted to actual Prolog variables before asserting so that clauses
+%  with source variables unify correctly during query execution.
 npl_interp_assert((Head :- Body)) :- !,
-    assertz(npl_user_clause(Head, Body)).
+    npl_clause_instantiate_vars((Head :- Body), (Head1 :- Body1)),
+    assertz(npl_user_clause(Head1, Body1)).
 npl_interp_assert(Head) :-
-    assertz(npl_user_clause(Head, true)).
+    npl_clause_instantiate_vars(Head, Head1),
+    assertz(npl_user_clause(Head1, true)).
 
 %% npl_interp_asserta/1 — assert a clause at the front of the database
 npl_interp_asserta((Head :- Body)) :- !,
-    asserta(npl_user_clause(Head, Body)).
+    npl_clause_instantiate_vars((Head :- Body), (Head1 :- Body1)),
+    asserta(npl_user_clause(Head1, Body1)).
 npl_interp_asserta(Head) :-
-    asserta(npl_user_clause(Head, true)).
+    npl_clause_instantiate_vars(Head, Head1),
+    asserta(npl_user_clause(Head1, true)).
 
 %% npl_interp_retract/1 — retract the first matching clause
 npl_interp_retract((Head :- Body)) :- !,
@@ -106,18 +113,17 @@ npl_interp_retract(Head) :-
 %  query/4, parse_error/2), the semantic analyser (analysed/3),
 %  and the legacy clause/2 format.
 %
-%  NOTE: The parser represents variables as compound terms var(Name).
-%  Rules loaded via this predicate use these compound terms as-is;
-%  for programs with variables use npl_interp_assert/1 directly with
-%  proper Prolog variable terms, or npl_interp_load_clauses/1.
+%  var(Name) compound terms in clause heads and bodies are converted
+%  to actual Prolog variables by routing all clause loading through
+%  npl_interp_assert/1.
 npl_interp_load([]).
 
 npl_interp_load([fact(Head, _, _, _)|Cs]) :- !,
-    assertz(npl_user_clause(Head, true)),
+    npl_interp_assert(Head),
     npl_interp_load(Cs).
 
 npl_interp_load([rule(Head, Body, _, _, _)|Cs]) :- !,
-    assertz(npl_user_clause(Head, Body)),
+    npl_interp_assert((Head :- Body)),
     npl_interp_load(Cs).
 
 npl_interp_load([directive(Goal, _, _, _)|Cs]) :- !,
@@ -132,19 +138,19 @@ npl_interp_load([parse_error(_, _)|Cs]) :- !,
     npl_interp_load(Cs).
 
 npl_interp_load([analysed(Head, true, _)|Cs]) :- !,
-    assertz(npl_user_clause(Head, true)),
+    npl_interp_assert(Head),
     npl_interp_load(Cs).
 
 npl_interp_load([analysed(Head, Body, _)|Cs]) :- !,
-    assertz(npl_user_clause(Head, Body)),
+    npl_interp_assert((Head :- Body)),
     npl_interp_load(Cs).
 
 npl_interp_load([clause(Head, true)|Cs]) :- !,
-    assertz(npl_user_clause(Head, true)),
+    npl_interp_assert(Head),
     npl_interp_load(Cs).
 
 npl_interp_load([clause(Head, Body)|Cs]) :- !,
-    assertz(npl_user_clause(Head, Body)),
+    npl_interp_assert((Head :- Body)),
     npl_interp_load(Cs).
 
 npl_interp_load([_|Cs]) :-    % skip unrecognised nodes
@@ -364,3 +370,63 @@ npl_solve_goal(Goal, _) :-
 npl_has_user_clauses(F/A) :-
     functor(Template, F, A),
     npl_user_clause(Template, _), !.
+
+% ============================================================
+% 7. VARIABLE INSTANTIATION HELPERS
+% ============================================================
+
+%% npl_clause_instantiate_vars/2
+%  npl_clause_instantiate_vars(+Clause, -Clause1)
+%  Replace var(Name) compound terms produced by the NeuroProlog parser
+%  with actual Prolog variables.  Variables sharing the same Name within
+%  a clause receive the same Prolog variable, matching standard Prolog
+%  scoping rules.  Each var('_') (anonymous variable) always produces a
+%  fresh independent unbound variable.
+npl_clause_instantiate_vars((Head :- Body), (Head1 :- Body1)) :- !,
+    npl_term_instantiate_vars(Head, [], Head1, Dict),
+    npl_term_instantiate_vars(Body, Dict, Body1, _).
+npl_clause_instantiate_vars(Head, Head1) :-
+    npl_term_instantiate_vars(Head, [], Head1, _).
+
+%% npl_term_instantiate_vars/4
+%  npl_term_instantiate_vars(+Term, +Dict0, -Term1, -Dict)
+%  Recursively traverse Term, replacing var(Name) compound terms with
+%  Prolog variables.  Dict0/Dict is an association list mapping Name
+%  atoms to their corresponding Prolog variables.
+%
+%  The var/1 guard MUST come first to avoid accidentally unifying an
+%  unbound Prolog variable with the var(Name) pattern.
+npl_term_instantiate_vars(Term, Dict0, Term1, Dict) :-
+    ( var(Term) ->
+        % Actual Prolog variable: preserve the same variable object.
+        Term1 = Term,
+        Dict = Dict0
+    ; functor(Term, var, 1), arg(1, Term, Name), atom(Name) ->
+        % NeuroProlog parser variable node var(Name).
+        ( Name = '_' ->
+            % Anonymous: each occurrence gets a distinct fresh variable;
+            % Term1 is left unbound.
+            Dict = Dict0
+        ;
+            % Named: share the same Prolog variable across all
+            % occurrences of Name within the clause.
+            ( member(Name-Var, Dict0)
+            -> Term1 = Var, Dict = Dict0
+            ;  Term1 = Var, Dict = [Name-Var|Dict0]
+            )
+        )
+    ; compound(Term) ->
+        % Other compound: recurse into the arguments.
+        Term =.. [F|Args],
+        npl_term_instantiate_vars_list(Args, Dict0, Args1, Dict),
+        Term1 =.. [F|Args1]
+    ;
+        % Atom or number: preserve as-is.
+        Term1 = Term,
+        Dict = Dict0
+    ).
+
+npl_term_instantiate_vars_list([], Dict, [], Dict).
+npl_term_instantiate_vars_list([H|T], Dict0, [H1|T1], Dict) :-
+    npl_term_instantiate_vars(H, Dict0, H1, Dict1),
+    npl_term_instantiate_vars_list(T, Dict1, T1, Dict).
