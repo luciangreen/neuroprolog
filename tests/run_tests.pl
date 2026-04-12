@@ -3254,7 +3254,10 @@ run_test(sh19_predicates_exported) :-
 
 %% sh19_invariant_source_exists — invariant 1: plain source file is present
 run_test(sh19_invariant_source_exists) :-
-    exists_file('../src/neuroprolog.pl').
+    module_property(run_tests, file(TestFile)),
+    file_directory_name(TestFile, TestDir),
+    atomic_list_concat([TestDir, '/../src/neuroprolog.pl'], Path),
+    exists_file(Path).
 
 %% sh19_invariant_opt_dict_nonempty — invariant 3: opt dict has rules
 run_test(sh19_invariant_opt_dict_nonempty) :-
