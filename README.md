@@ -42,6 +42,12 @@ To rebuild NeuroProlog from source:
 swipl -g "consult('src/rebuild')" -g "rebuild_neuroprolog" -t halt
 ```
 
+To run all tests:
+
+```sh
+swipl -g "run_all_tests, halt" -t halt       tests/run_tests.pl
+```
+
 ## Documentation
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — System architecture overview
