@@ -48,6 +48,12 @@ To run all tests:
 swipl -g "run_all_tests, halt" -t halt       tests/run_tests.pl
 ```
 
+To run equivalence tests:
+
+```sh
+swipl -g "run_equivalence_tests, halt" -t halt       tests/equivalence_tests.pl
+```
+
 ## Documentation
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — System architecture overview
