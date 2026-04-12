@@ -37,7 +37,7 @@
                    npl_run/1]).
 
 :- use_module(library(lists)).
-:- use_module(lexer, [npl_lex_string/2, npl_lex_string_pos/2]).
+:- use_module('./lexer', [npl_lex_string/2, npl_lex_string_pos/2]).
 
 %%====================================================================
 %% Public API

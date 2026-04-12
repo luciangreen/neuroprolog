@@ -20,7 +20,7 @@
 ]).
 
 :- use_module(library(lists)).
-:- consult('src/neuroprolog').
+:- consult('./neuroprolog').
 
 %%====================================================================
 %% Mode 1: Clean rebuild from plain Prolog source

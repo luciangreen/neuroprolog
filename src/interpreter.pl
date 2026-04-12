@@ -58,8 +58,8 @@
 ]).
 
 :- use_module(library(lists)).
-:- use_module(prelude).   % makes npl_append/3, npl_member/2, etc. visible
-:- use_module(control).   % makes npl_if/3, npl_not/1, etc. visible
+:- use_module('./prelude').   % makes npl_append/3, npl_member/2, etc. visible
+:- use_module('./control').   % makes npl_if/3, npl_not/1, etc. visible
 
 % ============================================================
 % 1. CLAUSE DATABASE

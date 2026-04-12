@@ -5,26 +5,26 @@
 
 :- module(run_tests, [run_all_tests/0]).
 
-:- consult('src/prelude').
-:- consult('src/lexer').
-:- consult('src/parser').
-:- consult('src/semantic_analyser').
-:- consult('src/intermediate_codegen').
-:- consult('src/optimisation_dictionary').
-:- consult('src/memoisation').
-:- consult('src/unfolding').
-:- consult('src/pattern_correlation').
-:- consult('src/gaussian_recursion').
-:- consult('src/subterm_addressing').
-:- consult('src/optimiser').
-:- consult('src/nested_recursion').
-:- consult('src/codegen').
-:- consult('src/control').
-:- consult('src/optimiser_pipeline').
-:- consult('src/wam_model').
-:- consult('src/interpreter').
-:- consult('src/cognitive_markers').
-:- consult('src/self_host').
+:- consult('../src/prelude').
+:- consult('../src/lexer').
+:- consult('../src/parser').
+:- consult('../src/semantic_analyser').
+:- consult('../src/intermediate_codegen').
+:- consult('../src/optimisation_dictionary').
+:- consult('../src/memoisation').
+:- consult('../src/unfolding').
+:- consult('../src/pattern_correlation').
+:- consult('../src/gaussian_recursion').
+:- consult('../src/subterm_addressing').
+:- consult('../src/optimiser').
+:- consult('../src/nested_recursion').
+:- consult('../src/codegen').
+:- consult('../src/control').
+:- consult('../src/optimiser_pipeline').
+:- consult('../src/wam_model').
+:- consult('../src/interpreter').
+:- consult('../src/cognitive_markers').
+:- consult('../src/self_host').
 
 :- dynamic test_passed/1.
 :- dynamic test_failed/1.
@@ -3254,7 +3254,7 @@ run_test(sh19_predicates_exported) :-
 
 %% sh19_invariant_source_exists — invariant 1: plain source file is present
 run_test(sh19_invariant_source_exists) :-
-    exists_file('src/neuroprolog.pl').
+    exists_file('../src/neuroprolog.pl').
 
 %% sh19_invariant_opt_dict_nonempty — invariant 3: opt dict has rules
 run_test(sh19_invariant_opt_dict_nonempty) :-
