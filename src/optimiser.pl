@@ -7,11 +7,11 @@
 
 :- use_module(library(lists)).
 
-:- use_module('src/gaussian_recursion').
-:- use_module('src/memoisation').
-:- use_module('src/subterm_addressing').
-:- use_module('src/optimisation_dictionary').
-:- use_module('src/nested_recursion').
+:- use_module('./gaussian_recursion').
+:- use_module('./memoisation').
+:- use_module('./subterm_addressing').
+:- use_module('./optimisation_dictionary').
+:- use_module('./nested_recursion').
 
 %% npl_optimise/2
 %  npl_optimise(+IR, -OptIR)

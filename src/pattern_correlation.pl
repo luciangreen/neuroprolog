@@ -29,7 +29,7 @@
     npl_pcorr_ir_report/2
 ]).
 
-:- use_module(unfolding).
+:- use_module('./unfolding').
 :- use_module(library(lists)).
 
 :- dynamic npl_pcorr_db/2.

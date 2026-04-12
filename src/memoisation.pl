@@ -35,7 +35,8 @@
     npl_memo_is_safe/1,
     npl_memo_inspect/2,
     npl_memo_stats/3,
-    npl_memoisation_pass/2
+    npl_memoisation_pass/2,
+    npl_memo_cache/3
 ]).
 
 :- use_module(library(lists)).

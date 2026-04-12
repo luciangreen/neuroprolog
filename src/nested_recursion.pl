@@ -83,7 +83,7 @@
 
 :- use_module(library(lists)).
 
-:- use_module('src/gaussian_recursion').
+:- use_module('./gaussian_recursion').
 
 %%====================================================================
 %% Top-level pass

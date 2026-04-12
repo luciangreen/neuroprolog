@@ -10,7 +10,7 @@
 ]).
 
 :- use_module(library(lists)).
-:- consult('src/neuroprolog').
+:- consult('./neuroprolog').
 
 %% self_compile/0
 %  Compile NeuroProlog using itself. Output → neurocode/neuroprolog_nc.pl

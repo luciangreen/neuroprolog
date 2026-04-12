@@ -51,8 +51,8 @@
 
 :- use_module(library(lists)).
 
-:- use_module('src/intermediate_codegen').
-:- use_module('src/optimisation_dictionary').
+:- use_module('./intermediate_codegen').
+:- use_module('./optimisation_dictionary').
 
 :- dynamic npl_ncm_entry/5.
 %  npl_ncm_entry(+OriginalClause, +CogMarker, +NeurocodeFragment, +OptSteps, +Meta)

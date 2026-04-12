@@ -12,22 +12,22 @@
 
 :- use_module(library(lists)).
 
-:- consult('src/prelude').
-:- consult('src/control').
-:- consult('src/wam_model').
-:- consult('src/lexer').
-:- consult('src/parser').
-:- consult('src/semantic_analyser').
-:- consult('src/intermediate_codegen').
-:- consult('src/optimiser').
-:- consult('src/optimiser_pipeline').
-:- consult('src/codegen').
-:- consult('src/cognitive_markers').
-:- consult('src/memoisation').
-:- consult('src/gaussian_recursion').
-:- consult('src/subterm_addressing').
-:- consult('src/optimisation_dictionary').
-:- consult('src/interpreter').
+:- consult('./prelude').
+:- consult('./control').
+:- consult('./wam_model').
+:- consult('./lexer').
+:- consult('./parser').
+:- consult('./semantic_analyser').
+:- consult('./intermediate_codegen').
+:- consult('./optimiser').
+:- consult('./optimiser_pipeline').
+:- consult('./codegen').
+:- consult('./cognitive_markers').
+:- consult('./memoisation').
+:- consult('./gaussian_recursion').
+:- consult('./subterm_addressing').
+:- consult('./optimisation_dictionary').
+:- consult('./interpreter').
 
 %% npl_main/0
 %  Start the NeuroProlog interactive interpreter.
