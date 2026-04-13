@@ -1,5 +1,7 @@
 # NeuroProlog
 
+* Note: NeuroProlog is a WAM interpreter, not a neuro-optimising interpreter (this feature doesn't work). A new interpreter with these features is needed.
+
 NeuroProlog is a Prolog interpreter written in Prolog that compiles Prolog into *neurocode* — an optimised, transparent Prolog representation. It is self-hosting: it can compile itself, rebuild itself, and preserve its own optimisations during rebuilds.
 
 ## Design Principles
