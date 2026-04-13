@@ -2796,20 +2796,20 @@ run_test(ncm14_full_pipeline) :-
 %% Stage 15: Optimiser Pipeline
 %% =====================================================================
 
-%% pipe15_pass_names_ordered — pass names list has exactly 13 entries in order
+%% pipe15_pass_names_ordered — pass names list has exactly 11 entries in order
 run_test(pipe15_pass_names_ordered) :-
     npl_pipeline_pass_names(Names),
     Names = [semantic_annotation, simplification, recurrence_detection,
-             variable_instantiation, gaussian_elimination, recursion_to_loop,
+             gaussian_elimination, recursion_to_loop,
              subterm_address_conversion, nested_recursion_elimination,
              memoisation_insertion, dict_learned_opt,
-             final_simplification, arithmetic_inlining, neurocode_emission],
-    length(Names, 13).
+             final_simplification, neurocode_emission],
+    length(Names, 11).
 
-%% pipe15_default_config_has_all_passes — default config has 13 pass entries
+%% pipe15_default_config_has_all_passes — default config has 11 pass entries
 run_test(pipe15_default_config_has_all_passes) :-
     npl_pipeline_default_config(Config),
-    length(Config, 13).
+    length(Config, 11).
 
 %% pipe15_default_all_enabled — all passes are enabled by default
 run_test(pipe15_default_all_enabled) :-
@@ -2846,11 +2846,11 @@ run_test(pipe15_run_empty_ir) :-
     OptIR == [],
     is_list(Report).
 
-%% pipe15_run_report_length — report has 12 entries (one per IR-transform pass)
+%% pipe15_run_report_length — report has 10 entries (one per IR-transform pass)
 run_test(pipe15_run_report_length) :-
     npl_pipeline_default_config(Config),
     npl_pipeline_run(Config, [], _, Report),
-    length(Report, 12).
+    length(Report, 10).
 
 %% pipe15_report_has_pass_report_terms — every report entry is pass_report/3
 run_test(pipe15_report_has_pass_report_terms) :-
@@ -2941,7 +2941,7 @@ run_test(pipe15_full_run_sum) :-
     npl_pipeline_default_config(Config),
     npl_pipeline_run(Config, IR, OptIR, Report),
     is_list(OptIR),
-    length(Report, 12),
+    length(Report, 10),
     maplist(is_pass_report, Report).
 
 %% pipe15_run_full_produces_neurocode — run_full produces a non-empty neurocode list
@@ -2953,14 +2953,14 @@ run_test(pipe15_run_full_produces_neurocode) :-
     npl_pipeline_run_full(Config, IR, _OptIR, Neurocode, Report),
     is_list(Neurocode),
     Neurocode \= [],
-    length(Report, 13),
+    length(Report, 11),
     member(pass_report(neurocode_emission, applied, _), Report).
 
-%% pipe15_run_full_report_length — run_full report has 13 entries
+%% pipe15_run_full_report_length — run_full report has 11 entries
 run_test(pipe15_run_full_report_length) :-
     npl_pipeline_default_config(Config),
     npl_pipeline_run_full(Config, [], _, _, Report),
-    length(Report, 13).
+    length(Report, 11).
 
 %% pipe15_benchmark_returns_time — benchmark returns a numeric time
 run_test(pipe15_benchmark_returns_time) :-
@@ -2985,7 +2985,7 @@ run_test(pipe15_pipeline_vs_optimiser) :-
     npl_pipeline_run(Config, IR, OptIR2, _),
     npl_generate(OptIR1, NC1),
     npl_generate(OptIR2, NC2),
-    NC1 =@= NC2.
+    NC1 == NC2.
 
 %% pipe15_report_print_succeeds — npl_pipeline_report_print/1 succeeds without error
 run_test(pipe15_report_print_succeeds) :-
