@@ -7,14 +7,16 @@
 %   1.  semantic_annotation           — collect and report IR annotation metadata
 %   2.  simplification                — apply simplification rules from the dictionary
 %   3.  recurrence_detection          — detect and report recurrence patterns
-%   4.  gaussian_elimination          — Gaussian-elimination recursion transforms
-%   5.  recursion_to_loop             — wrap structural nested bodies in ir_loop_candidate
-%   6.  subterm_address_conversion    — convert ir_loop_candidate to ir_addr_loop
-%   7.  nested_recursion_elimination  — memo-wrap pure and data-fold nested patterns
-%   8.  memoisation_insertion         — insert ir_memo_site annotations for registered preds
-%   9.  dict_learned_opt              — apply dictionary-based learned optimisation rules
-%   10. final_simplification          — final simplification sweep
-%   11. neurocode_emission            — emit neurocode terms from optimised IR
+%   4.  variable_instantiation        — convert var(Name) to actual Prolog variables
+%   5.  gaussian_elimination          — Gaussian-elimination recursion transforms
+%   6.  recursion_to_loop             — wrap structural nested bodies in ir_loop_candidate
+%   7.  subterm_address_conversion    — convert ir_loop_candidate to ir_addr_loop
+%   8.  nested_recursion_elimination  — memo-wrap pure and data-fold nested patterns
+%   9.  memoisation_insertion         — insert ir_memo_site annotations for registered preds
+%   10. dict_learned_opt              — apply dictionary-based learned optimisation rules
+%   11. final_simplification          — final simplification sweep
+%   12. arithmetic_inlining           — inline single-use arithmetic temporaries
+%   13. neurocode_emission            — emit neurocode terms from optimised IR
 %
 % == Configuration ==
 %
@@ -63,6 +65,7 @@
 :- use_module('./memoisation').
 :- use_module('./subterm_addressing').
 :- use_module('./optimisation_dictionary').
+:- use_module('./optimiser').
 :- use_module('./codegen').
 
 %%====================================================================
@@ -75,6 +78,7 @@ npl_pipeline_pass_names([
     semantic_annotation,
     simplification,
     recurrence_detection,
+    variable_instantiation,
     gaussian_elimination,
     recursion_to_loop,
     subterm_address_conversion,
@@ -82,6 +86,7 @@ npl_pipeline_pass_names([
     memoisation_insertion,
     dict_learned_opt,
     final_simplification,
+    arithmetic_inlining,
     neurocode_emission
 ]).
 
@@ -139,18 +144,20 @@ npl_pipeline_run(Config, IR, OptIR, Report) :-
     reverse(RevReport, Report).
 
 %% npl_pipeline_ir_pass_names/1
-%  Ordered list of the 10 IR-transform passes (neurocode_emission excluded).
+%  Ordered list of IR-transform passes (neurocode_emission excluded).
 npl_pipeline_ir_pass_names([
     semantic_annotation,
     simplification,
     recurrence_detection,
+    variable_instantiation,
     gaussian_elimination,
     recursion_to_loop,
     subterm_address_conversion,
     nested_recursion_elimination,
     memoisation_insertion,
     dict_learned_opt,
-    final_simplification
+    final_simplification,
+    arithmetic_inlining
 ]).
 
 %% npl_pipeline_run_passes/6
@@ -317,6 +324,24 @@ npl_pipeline_apply_pass(dict_learned_opt, IR, OptIR, Info) :-
 npl_pipeline_apply_pass(final_simplification, IR, OptIR, Info) :-
     npl_opt_dict_rules(Rules),
     npl_pipeline_apply_rules(Rules, IR, OptIR),
+    length(IR, NIn),
+    length(OptIR, NOut),
+    Info = [ir_items_in:NIn, ir_items_out:NOut].
+
+%% Pass variable_instantiation: convert var(Name) compound terms to Prolog vars.
+%  Must run after simplification (which matches on var/1 ground terms safely)
+%  and before gaussian_elimination (which requires actual Prolog variables for
+%  copy_term-based structural analysis).
+npl_pipeline_apply_pass(variable_instantiation, IR, OptIR, Info) :-
+    npl_ir_instantiate_all(IR, OptIR),
+    length(IR, N),
+    Info = [ir_items:N].
+
+%% Pass arithmetic_inlining: inline single-use arithmetic temporaries.
+%  Removes intermediate variables of the form  V is Expr  when V is not a
+%  head variable and appears exactly once in subsequent body goals.
+npl_pipeline_apply_pass(arithmetic_inlining, IR, OptIR, Info) :-
+    npl_arith_inline_pass(IR, OptIR),
     length(IR, NIn),
     length(OptIR, NOut),
     Info = [ir_items_in:NIn, ir_items_out:NOut].
