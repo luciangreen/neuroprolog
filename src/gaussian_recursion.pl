@@ -211,6 +211,14 @@ npl_accumulator_rewrite([Base, Step], [WrapClause, AccBase, AccStep]) :-
     RecCall =.. [F|RArgs],
     append(RStructArgs, [_RResult], RArgs),
 
+    % Each recursive structural arg must appear as a subterm of the
+    % corresponding step structural arg.  This ensures the rewrite is
+    % safe: the new accumulator step's recursive call retains the correct
+    % structural relationship (e.g. the tail T of [H|T]).
+    % If this check fails (e.g. integer-decrement recursion), the rewrite
+    % is skipped and the group is emitted unchanged.
+    npl_struct_args_compatible(SStructArgs, RStructArgs),
+
     % --- 1. Wrapper clause: f(WS..., WR) :- f_gauss_acc(WS..., Id, WR) ---
     functor(WrapHead, F, A),
     WrapHead =.. [F|WrapAllArgs],
@@ -391,12 +399,13 @@ npl_ir_body_find_rec_call(ir_seq(_Left, Right), F, A, Call) :-
     npl_ir_body_find_rec_call(Right, F, A, Call), !.
 
 %% npl_ir_body_find_is/3
-%  Find the first  is(Var, Expr)  call inside an IR body tree.
-npl_ir_body_find_is(ir_call(is(Var, Expr)), Var, Expr) :- !.
+%  Find an  is(Var, Expr)  call inside an IR body tree.
+%  Backtracking yields further occurrences (left-to-right, depth-first).
+npl_ir_body_find_is(ir_call(is(Var, Expr)), Var, Expr).
 npl_ir_body_find_is(ir_seq(Left, _Right), Var, Expr) :-
-    npl_ir_body_find_is(Left, Var, Expr), !.
+    npl_ir_body_find_is(Left, Var, Expr).
 npl_ir_body_find_is(ir_seq(_Left, Right), Var, Expr) :-
-    npl_ir_body_find_is(Right, Var, Expr), !.
+    npl_ir_body_find_is(Right, Var, Expr).
 
 %% npl_ir_last_arg/2
 %  Get the last argument of a compound term.
@@ -424,3 +433,29 @@ npl_op_identity('*', 1).
 %  Build an arithmetic expression  Acc Op Extra.
 npl_build_arith('+', Acc, Extra, '+'(Acc, Extra)).
 npl_build_arith('*', Acc, Extra, '*'(Acc, Extra)).
+
+%%====================================================================
+%% Structural compatibility check
+%%====================================================================
+
+%% npl_struct_args_compatible/2
+%  npl_struct_args_compatible(+StepStructArgs, +RecStructArgs)
+%  Succeed when every element of RecStructArgs appears as a subterm of
+%  the corresponding element of StepStructArgs.
+%  This verifies that the accumulator rewrite is structurally safe:
+%  the step-to-recursive-call transition is achieved by decomposing the
+%  head argument (e.g. [H|T] -> T), not by arbitrary arithmetic.
+npl_struct_args_compatible([], []).
+npl_struct_args_compatible([SA|SAs], [RA|RAs]) :-
+    npl_is_subterm_of(RA, SA),
+    npl_struct_args_compatible(SAs, RAs).
+
+%% npl_is_subterm_of/2
+%  npl_is_subterm_of(+Sub, +Term)
+%  Succeed when Sub is identical to Term or recursively appears inside Term.
+npl_is_subterm_of(Sub, Term) :- Sub == Term, !.
+npl_is_subterm_of(Sub, Term) :-
+    compound(Term),
+    Term =.. [_|Args],
+    member(Arg, Args),
+    npl_is_subterm_of(Sub, Arg).
