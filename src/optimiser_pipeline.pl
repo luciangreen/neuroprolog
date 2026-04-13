@@ -7,16 +7,16 @@
 %   1.  semantic_annotation           — collect and report IR annotation metadata
 %   2.  simplification                — apply simplification rules from the dictionary
 %   3.  recurrence_detection          — detect and report recurrence patterns
-%   2b. variable_instantiation        — convert var(Name) to actual Prolog variables
-%   4.  gaussian_elimination          — Gaussian-elimination recursion transforms
-%   5.  recursion_to_loop             — wrap structural nested bodies in ir_loop_candidate
-%   6.  subterm_address_conversion    — convert ir_loop_candidate to ir_addr_loop
-%   7.  nested_recursion_elimination  — memo-wrap pure and data-fold nested patterns
-%   8.  memoisation_insertion         — insert ir_memo_site annotations for registered preds
-%   9.  dict_learned_opt              — apply dictionary-based learned optimisation rules
-%   10. final_simplification          — final simplification sweep
-%   10b.arithmetic_inlining           — inline single-use arithmetic temporaries
-%   11. neurocode_emission            — emit neurocode terms from optimised IR
+%   4.  variable_instantiation        — convert var(Name) to actual Prolog variables
+%   5.  gaussian_elimination          — Gaussian-elimination recursion transforms
+%   6.  recursion_to_loop             — wrap structural nested bodies in ir_loop_candidate
+%   7.  subterm_address_conversion    — convert ir_loop_candidate to ir_addr_loop
+%   8.  nested_recursion_elimination  — memo-wrap pure and data-fold nested patterns
+%   9.  memoisation_insertion         — insert ir_memo_site annotations for registered preds
+%   10. dict_learned_opt              — apply dictionary-based learned optimisation rules
+%   11. final_simplification          — final simplification sweep
+%   12. arithmetic_inlining           — inline single-use arithmetic temporaries
+%   13. neurocode_emission            — emit neurocode terms from optimised IR
 %
 % == Configuration ==
 %
