@@ -1,0 +1,3 @@
+# NeuroProlog Rebuild Log
+# Each entry records an optimisation-rule loss that was approved via --approve-opt-loss.
+# Format: [OPT_LOSS] <ISO-8601-timestamp> Lost rules: <list>

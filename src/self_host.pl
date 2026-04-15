@@ -12,6 +12,16 @@
 :- use_module(library(lists)).
 :- consult('./neuroprolog').
 
+%% Import predicates from sub-modules that are loaded by neuroprolog but not
+%% re-exported by it.  These are needed by the invariant checks below.
+:- use_module('./optimisation_dictionary',
+              [npl_opt_dict_rules/1, npl_opt_dict_entries/1]).
+:- use_module('./cognitive_markers', [npl_ncm_all/1]).
+
+%% Load the rebuild module to make rebuild_guard/0 accessible.
+:- use_module('./rebuild',
+              [rebuild_guard/0, npl_rebuild_snapshot_save/0]).
+
 %% self_compile/0
 %  Compile NeuroProlog using itself. Output → neurocode/neuroprolog_nc.pl
 self_compile :-
@@ -27,7 +37,9 @@ check_self_hosting :-
     check_invariant_3,
     check_invariant_4,
     check_invariant_5,
-    write('[self_host] All invariants satisfied.'), nl.
+    check_invariant_6,
+    check_invariant_7,
+    write('[self_host] All 7 invariants satisfied.'), nl.
 
 %% Invariant 1: Plain source exists
 check_invariant_1 :-
@@ -86,6 +98,47 @@ check_invariant_5 :-
         )
     ;
         write('[inv5] NOTE: optimisation_dictionary module not loaded'), nl
+    ).
+
+%% Invariant 6: Rebuild instructions must not be discarded
+%  Verify that REBUILDING.md and SELF_HOSTING.md exist and are non-empty.
+check_invariant_6 :-
+    check_inv6_file('REBUILDING.md'),
+    check_inv6_file('SELF_HOSTING.md'),
+    write('[inv6] Rebuild instruction files present and non-empty: OK'), nl.
+
+check_inv6_file(File) :-
+    ( exists_file(File) ->
+        ( size_file(File, Size), Size > 0 ->
+            true
+        ;
+            format('[inv6] FAIL: ~w is empty~n', [File]), fail
+        )
+    ;
+        format('[inv6] FAIL: ~w is missing~n', [File]), fail
+    ).
+
+%% Invariant 7: Learned optimisations must not be silently discarded
+%  Verify that rebuild_guard/0 is defined and passes on a clean system
+%  (i.e. no optimisation rules have been lost since the last snapshot).
+check_invariant_7 :-
+    ( current_predicate(rebuild_guard/0) ->
+        ( catch(
+              ( npl_rebuild_snapshot_save,
+                rebuild_guard ),
+              error(opt_loss(Lost), Context),
+              ( format('[inv7] FAIL: rebuild_guard/0 detected lost rules: ~w (context: ~w)~n',
+                       [Lost, Context]),
+                fail )
+          ) ->
+            write('[inv7] rebuild_guard/0 present and passes on clean system: OK'), nl
+        ;
+            write('[inv7] FAIL: rebuild_guard/0 does not pass on clean system'), nl,
+            fail
+        )
+    ;
+        write('[inv7] FAIL: rebuild_guard/0 not defined'), nl,
+        fail
     ).
 
 %%====================================================================

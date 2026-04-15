@@ -185,7 +185,7 @@ npl_memo_clear_all :-
 %  npl_memo_inspect(+F/A, -Entries)
 %  Entries is a list of cache_entry(Key, Mode, Value) terms.
 npl_memo_inspect(F/A, Entries) :-
-    functor(Head, F, A),
+    functor(_, F, A),
     findall(cache_entry(Key, Mode, Val),
             ( npl_memo_cache(Key, Mode, Val),
               functor(Key, F, A) ),
