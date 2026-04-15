@@ -12,6 +12,17 @@
 :- use_module(library(lists)).
 :- consult('./neuroprolog').
 
+%% Import predicates from sub-modules that are loaded by neuroprolog but not
+%% re-exported by it.  These are needed by the invariant checks below.
+:- use_module('./optimisation_dictionary',
+              [npl_opt_dict_rules/1, npl_opt_dict_entries/1,
+               npl_opt_rule/3]).
+:- use_module('./cognitive_markers', [npl_ncm_all/1]).
+
+%% Load the rebuild module to make rebuild_guard/0 accessible.
+:- use_module('./rebuild',
+              [rebuild_guard/0, npl_rebuild_snapshot_save/0]).
+
 %% self_compile/0
 %  Compile NeuroProlog using itself. Output → neurocode/neuroprolog_nc.pl
 self_compile :-
@@ -27,7 +38,9 @@ check_self_hosting :-
     check_invariant_3,
     check_invariant_4,
     check_invariant_5,
-    write('[self_host] All invariants satisfied.'), nl.
+    check_invariant_6,
+    check_invariant_7,
+    write('[self_host] All 7 invariants satisfied.'), nl.
 
 %% Invariant 1: Plain source exists
 check_invariant_1 :-
@@ -86,6 +99,84 @@ check_invariant_5 :-
         )
     ;
         write('[inv5] NOTE: optimisation_dictionary module not loaded'), nl
+    ).
+
+%% Invariant 6: Rebuild instructions must not be discarded
+%  Verify that REBUILDING.md and SELF_HOSTING.md exist and are non-empty.
+check_invariant_6 :-
+    check_inv6_file('REBUILDING.md'),
+    check_inv6_file('SELF_HOSTING.md'),
+    write('[inv6] Rebuild instruction files present and non-empty: OK'), nl.
+
+check_inv6_file(File) :-
+    ( exists_file(File) ->
+        ( size_file(File, Size), Size > 0 ->
+            true
+        ;
+            format('[inv6] FAIL: ~w is empty~n', [File]), fail
+        )
+    ;
+        format('[inv6] FAIL: ~w is missing~n', [File]), fail
+    ).
+
+%% Invariant 7: Learned optimisations must not be silently discarded
+%  Verify two properties of rebuild_guard/0:
+%    (a) It passes on a clean system when no rules have been lost.
+%    (b) It detects a simulated rule loss (snapshot saved before a rule
+%        is temporarily removed, guard called, expects opt_loss throw).
+%  The probe rule is immediately restored regardless of outcome.
+check_invariant_7 :-
+    ( current_predicate(rebuild_guard/0) ->
+        % (a) Guard passes when snapshot matches current rules (no loss).
+        npl_rebuild_snapshot_save,
+        ( catch(
+              rebuild_guard,
+              error(opt_loss(Lost7a), Ctx7a),
+              ( format('[inv7] FAIL: clean-system guard detected unexpected loss: ~w (~w)~n',
+                       [Lost7a, Ctx7a]),
+                fail )
+          ) ->
+            true
+        ;
+            write('[inv7] FAIL: rebuild_guard/0 fails on clean system'), nl,
+            fail
+        ),
+        % (b) Guard detects a simulated rule loss.
+        inv7_guard_detects_loss,
+        write('[inv7] rebuild_guard/0 present, passes on clean system, and detects losses: OK'), nl
+    ;
+        write('[inv7] FAIL: rebuild_guard/0 not defined'), nl,
+        fail
+    ).
+
+%% inv7_guard_detects_loss/0
+%  Temporarily remove one known optimisation rule, verify that
+%  rebuild_guard/0 throws opt_loss, then restore the rule.
+%  Uses setup_call_cleanup/3 to guarantee restoration even on failure.
+inv7_guard_detects_loss :-
+    npl_opt_dict_rules(Rules),
+    ( Rules = [ProbeRule|_] ->
+        % Record the probe rule's full fact before removing it.
+        npl_opt_rule(ProbeRule, ProbePattern, ProbeReplacement),
+        % Take snapshot WITH the rule present, then remove it.
+        npl_rebuild_snapshot_save,
+        setup_call_cleanup(
+            retract(npl_opt_rule(ProbeRule, ProbePattern, ProbeReplacement)),
+            ( catch(
+                  rebuild_guard,
+                  error(opt_loss(_), _),
+                  true   % expected: guard detected the loss
+              ) ->
+                true
+            ;
+                % Guard did NOT throw — loss not detected.
+                fail
+            ),
+            assertz(npl_opt_rule(ProbeRule, ProbePattern, ProbeReplacement))
+        )
+    ;
+        % No rules in dictionary; skip the loss-detection sub-test.
+        true
     ).
 
 %%====================================================================

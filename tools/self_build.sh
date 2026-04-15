@@ -7,12 +7,14 @@
 #   --with-dict FILE     Rebuild loading a prior optimisation dictionary
 #   --merge FILE         Rebuild merging in newly learned optimisations
 #   --safe               Safe fallback rebuild without experimental transforms
+#   --approve-opt-loss   Approve any lost optimisation rules (logs to rebuild_log.txt)
 #
 # Usage:
 #   ./tools/self_build.sh [--clean]
 #   ./tools/self_build.sh --with-dict optimisations/my_dict.pl
 #   ./tools/self_build.sh --merge /tmp/new_opts.pl
 #   ./tools/self_build.sh --safe
+#   ./tools/self_build.sh --clean --approve-opt-loss
 #
 # All modes write output to neurocode/neuroprolog_nc.pl.
 # Run from the repository root directory.
@@ -27,6 +29,7 @@ cd "$REPO_DIR"
 
 MODE="clean"
 FILE=""
+APPROVE_OPT_LOSS=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -48,6 +51,10 @@ while [ $# -gt 0 ]; do
             MODE="safe"
             shift
             ;;
+        --approve-opt-loss)
+            APPROVE_OPT_LOSS="-g npl_rebuild_approve_opt_loss"
+            shift
+            ;;
         -h|--help)
             sed -n '2,20p' "$0" | sed 's/^# *//'
             exit 0
@@ -65,6 +72,7 @@ echo "=== NeuroProlog Self-Build (mode: $MODE) ==="
 case "$MODE" in
     clean)
         "$SWIPL" -g "consult('src/rebuild')" \
+                 $APPROVE_OPT_LOSS \
                  -g "rebuild_clean" \
                  -t halt
         ;;
@@ -78,6 +86,7 @@ case "$MODE" in
             exit 1
         fi
         "$SWIPL" -g "consult('src/rebuild')" \
+                 $APPROVE_OPT_LOSS \
                  -g "rebuild_with_dict('$FILE')" \
                  -t halt
         ;;
@@ -91,11 +100,13 @@ case "$MODE" in
             exit 1
         fi
         "$SWIPL" -g "consult('src/rebuild')" \
+                 $APPROVE_OPT_LOSS \
                  -g "rebuild_with_merged('$FILE')" \
                  -t halt
         ;;
     safe)
         "$SWIPL" -g "consult('src/rebuild')" \
+                 $APPROVE_OPT_LOSS \
                  -g "rebuild_safe_fallback" \
                  -t halt
         ;;
