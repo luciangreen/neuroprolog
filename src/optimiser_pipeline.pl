@@ -65,6 +65,8 @@
 :- use_module('./optimisation_dictionary').
 :- use_module('./codegen').
 
+:- discontiguous npl_pipeline_apply_pass/4.
+
 %%====================================================================
 %% Pass ordering
 %%====================================================================

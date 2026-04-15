@@ -404,6 +404,10 @@ run_test_suite :-
     test(cg16_ir_to_body_emitting_source_marker_transparent),
     test(cg16_neurocode_is_valid_prolog),
     test(cg16_neurocode_is_reloadable),
+    test(cg16_vars_become_prolog_vars),
+    test(cg16_vars_shared_in_clause),
+    test(cg16_anon_vars_distinct),
+    test(cg16_e2e_pipeline_vars_correct),
     % --- Stage 19: Self-Hosting Tests ---
     test(sh19_predicates_exported),
     test(sh19_invariant_source_exists),
@@ -2976,6 +2980,10 @@ run_test(pipe15_benchmark_time_nonnegative) :-
     TimeMs >= 0.
 
 %% pipe15_pipeline_vs_optimiser — pipeline output is equivalent to npl_optimise output
+%  Uses =@= (structural equality up to variable renaming) because
+%  npl_generate/2 now converts var(Name) compound terms to real Prolog
+%  variables, so the two neurocode lists have structurally equal but
+%  independently instantiated variables.
 run_test(pipe15_pipeline_vs_optimiser) :-
     npl_parse_string('id15(X) :- true, X = a.', AST),
     npl_analyse(AST, AAST),
@@ -2985,7 +2993,7 @@ run_test(pipe15_pipeline_vs_optimiser) :-
     npl_pipeline_run(Config, IR, OptIR2, _),
     npl_generate(OptIR1, NC1),
     npl_generate(OptIR2, NC2),
-    NC1 == NC2.
+    NC1 =@= NC2.
 
 %% pipe15_report_print_succeeds — npl_pipeline_report_print/1 succeeds without error
 run_test(pipe15_report_print_succeeds) :-
@@ -3242,6 +3250,47 @@ run_test(cg16_neurocode_is_reloadable) :-
     npl_generate_full(IR, '', Segments),
     Segments = [code_segment(_, Clause, _)],
     callable(Clause).
+
+%% cg16_vars_become_prolog_vars — var(Name) terms in IR are emitted as
+%  real Prolog variables, not var('N') compound terms.
+run_test(cg16_vars_become_prolog_vars) :-
+    npl_parse_string('double16v(X, Y) :- Y is X * 2.', AST),
+    npl_analyse(AST, AAST),
+    npl_intermediate(AAST, IR),
+    npl_generate(IR, [Clause]),
+    Clause = (Head :- _Body),
+    Head =.. [double16v, A1, _A2],
+    var(A1).
+
+%% cg16_vars_shared_in_clause — occurrences of the same source variable name
+%  map to the same Prolog variable within a generated clause.
+run_test(cg16_vars_shared_in_clause) :-
+    npl_parse_string('id16v(X, X).', AST),
+    npl_analyse(AST, AAST),
+    npl_intermediate(AAST, IR),
+    npl_generate(IR, [Clause]),
+    Clause =.. [id16v, A, B],
+    A == B.
+
+%% cg16_anon_vars_distinct — each var('_') becomes a distinct fresh variable.
+run_test(cg16_anon_vars_distinct) :-
+    npl_parse_string('anon16v(_, _).', AST),
+    npl_analyse(AST, AAST),
+    npl_intermediate(AAST, IR),
+    npl_generate(IR, [Clause]),
+    Clause =.. [anon16v, A, B],
+    \+ A == B.
+
+%% cg16_e2e_pipeline_vars_correct — full pipeline generates executable Prolog
+%  with real variables (not var(Name) compounds).
+run_test(cg16_e2e_pipeline_vars_correct) :-
+    npl_parse_string('add16v(X, Y, Z) :- Z is X + Y.', AST),
+    npl_analyse(AST, AAST),
+    npl_intermediate(AAST, IR),
+    npl_pipeline_default_config(Config),
+    npl_pipeline_run_full(Config, IR, _OptIR, Neurocode, _Report),
+    Neurocode = [(add16v(A, B, C) :- _Body)],
+    var(A), var(B), var(C).
 
 %%====================================================================
 %% Stage 19: Self-Hosting Tests

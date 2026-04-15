@@ -42,16 +42,26 @@
                     npl_generate_text/3,
                     npl_cg_loop_max_depth/1]).
 
+:- discontiguous npl_ir_to_body_emitting/3.
+
 %% npl_generate/2
 %  npl_generate(+OptIR, -Neurocode)
 %  Convert optimised IR to a list of Prolog clause terms (neurocode).
+%  var(Name) compound terms produced by the NeuroProlog parser are
+%  converted to actual Prolog variables so that emitted clauses are
+%  valid, executable Prolog.
 npl_generate(IR, Neurocode) :-
     maplist(npl_ir_to_clause, IR, Neurocode).
 
 %% npl_ir_to_clause/2
-npl_ir_to_clause(ir_clause(Head, ir_true, _), Head) :- !.
-npl_ir_to_clause(ir_clause(Head, IRBody, _), (Head :- Body)) :-
-    npl_ir_to_body(IRBody, Body).
+%  Translate one ir_clause/3 to a Prolog clause term.
+%  var(Name) terms in head and body are replaced by real Prolog variables
+%  so that the generated clause unifies and executes correctly.
+npl_ir_to_clause(ir_clause(Head, ir_true, _), Clause) :- !,
+    npl_cg_instantiate_clause(Head, Clause).
+npl_ir_to_clause(ir_clause(Head, IRBody, _), Clause) :-
+    npl_ir_to_body(IRBody, Body),
+    npl_cg_instantiate_clause((Head :- Body), Clause).
 
 %% npl_ir_to_body/2
 npl_ir_to_body(ir_true, true) :- !.
@@ -230,9 +240,12 @@ npl_segment_meta(Head, IRInfo, Meta) :-
 
 %% npl_ir_to_clause_emitting/4
 %  Produce a Prolog clause term using the emitting body translator.
-npl_ir_to_clause_emitting(Head, ir_true, _, Head) :- !.
-npl_ir_to_clause_emitting(Head, IRBody, IRInfo, (Head :- Body)) :-
-    npl_ir_to_body_emitting(IRBody, IRInfo, Body).
+%  var(Name) compound terms are converted to real Prolog variables.
+npl_ir_to_clause_emitting(Head, ir_true, _, Clause) :- !,
+    npl_cg_instantiate_clause(Head, Clause).
+npl_ir_to_clause_emitting(Head, IRBody, IRInfo, Clause) :-
+    npl_ir_to_body_emitting(IRBody, IRInfo, Body),
+    npl_cg_instantiate_clause((Head :- Body), Clause).
 
 %% npl_ir_to_body_emitting/3
 %  Like npl_ir_to_body/2 but emits explicit Prolog for memo and loop nodes.
@@ -384,3 +397,63 @@ npl_generate_text(OptIR, SrcFile, Text) :-
     ),
     with_output_to(atom(Text),
         npl_write_neurocode_full(current_output, Segments, Header)).
+
+%%====================================================================
+%% Variable instantiation helpers
+%%====================================================================
+%
+% The NeuroProlog parser represents source variables as var(Name) compound
+% terms (e.g. var('X'), var('N')) rather than real Prolog variables.
+% These helpers convert var(Name) to actual Prolog variables so that the
+% generated clause terms are valid, executable Prolog.
+%
+% Variables with the same Name within a clause share the same Prolog
+% variable (correct scoping).  var('_') (anonymous) always produces a
+% fresh independent variable.
+
+%% npl_cg_instantiate_clause/2
+%  npl_cg_instantiate_clause(+RawClause, -Clause)
+%  Replace var(Name) compound terms in a clause (head or head+body)
+%  with real Prolog variables.
+npl_cg_instantiate_clause((Head :- Body), (Head1 :- Body1)) :- !,
+    npl_cg_term_vars(Head, [], Head1, Dict),
+    npl_cg_term_vars(Body, Dict, Body1, _).
+npl_cg_instantiate_clause(Head, Head1) :-
+    npl_cg_term_vars(Head, [], Head1, _).
+
+%% npl_cg_term_vars/4
+%  npl_cg_term_vars(+Term, +Dict0, -Term1, -Dict)
+%  Recursively traverse Term, replacing var(Name) compound terms with
+%  Prolog variables.  Dict0/Dict maps Name atoms to their Prolog variables.
+%  The var/1 guard prevents an unbound Prolog variable from matching
+%  the var(Name) pattern.
+npl_cg_term_vars(Term, Dict0, Term1, Dict) :-
+    ( var(Term) ->
+        Term1 = Term,
+        Dict = Dict0
+    ; functor(Term, var, 1), arg(1, Term, Name), atom(Name) ->
+        ( Name = '_' ->
+            % Anonymous variable: leave Term1 unbound so that each
+            % occurrence in the clause head gets a distinct fresh Prolog
+            % variable.  Term1 is the fresh variable from the clause head
+            % — not binding it IS the correct way to create a fresh var.
+            Dict = Dict0
+        ;
+            ( member(Name-Var, Dict0)
+            -> Term1 = Var, Dict = Dict0
+            ;  Term1 = Var, Dict = [Name-Var|Dict0]
+            )
+        )
+    ; compound(Term) ->
+        Term =.. [F|Args],
+        npl_cg_term_vars_list(Args, Dict0, Args1, Dict),
+        Term1 =.. [F|Args1]
+    ;
+        Term1 = Term,
+        Dict = Dict0
+    ).
+
+npl_cg_term_vars_list([], Dict, [], Dict).
+npl_cg_term_vars_list([H|T], Dict0, [H1|T1], Dict) :-
+    npl_cg_term_vars(H, Dict0, H1, Dict1),
+    npl_cg_term_vars_list(T, Dict1, T1, Dict).
