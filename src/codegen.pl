@@ -134,13 +134,31 @@ npl_codegen_write_clause_(Stream, Fact) :-
     write_term(Stream, Fact, [quoted(true), numbervars(true)]),
     write(Stream, '.'), nl(Stream).
 
-npl_codegen_write_body_(Stream, (A, B), Indent) :- !,
-    npl_codegen_write_body_(Stream, A, Indent),
+npl_codegen_write_body_(Stream, Body, Indent) :-
+    npl_codegen_conjuncts_(Body, Goals),
+    npl_codegen_write_goals_(Stream, Goals, Indent).
+
+npl_codegen_conjuncts_((A, B), Goals) :- !,
+    npl_codegen_conjuncts_(A, GA),
+    npl_codegen_conjuncts_(B, GB),
+    append(GA, GB, Goals).
+npl_codegen_conjuncts_(Goal, [Goal]).
+
+npl_codegen_write_goals_(Stream, [Goal], Indent) :- !,
+    npl_codegen_write_goal_(Stream, Goal, Indent).
+npl_codegen_write_goals_(Stream, [Goal|Goals], Indent) :-
+    npl_codegen_write_goal_(Stream, Goal, Indent),
     write(Stream, ','), nl(Stream),
-    npl_codegen_write_body_(Stream, B, Indent).
-npl_codegen_write_body_(Stream, Goal, Indent) :-
+    npl_codegen_write_goals_(Stream, Goals, Indent).
+
+npl_codegen_goal_priority_(999).
+
+npl_codegen_write_goal_(Stream, Goal, Indent) :-
+    % 999 is the context priority used inside conjunctions (A, B),
+    % ensuring disjunction/if-then-else goals are parenthesised when needed.
+    npl_codegen_goal_priority_(Priority),
     tab(Stream, Indent),
-    write_term(Stream, Goal, [quoted(true), numbervars(true), priority(999)]).
+    write_term(Stream, Goal, [quoted(true), numbervars(true), priority(Priority)]).
 
 %% Stage 3 source round-trip helpers
 

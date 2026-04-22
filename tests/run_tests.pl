@@ -819,7 +819,8 @@ run_test(api3_stage4_predicate_group_spacing) :-
            ir_clause(p, ir_call(q), info([])),
            ir_clause(r, ir_true, info([])) ],
     npl_ir_to_source_text(IR, Text),
-    sub_atom(Text, _, _, _, 'p.\np :-\n    q.\n\nr.').
+    sub_atom(Text, _, _, _, 'p.\np :-\n    q.\n\nr.'),
+    \+ sub_atom(Text, _, _, _, '\n\n\n').
 
 %% --- Additional prelude tests ---
 
