@@ -14,6 +14,11 @@
                          npl_ir_to_source_file/2,
                          npl_ir_to_clause_public/2,
                          npl_ir_to_body_public/2,
+                         npl_source_to_ir/2,
+                         npl_source_to_optimised_ir/2,
+                         npl_roundtrip_source/2,
+                         npl_roundtrip_source_text/2,
+                         npl_roundtrip_source_file/2,
                          npl_code_generate/2]).
 
 :- use_module(library(lists)).
