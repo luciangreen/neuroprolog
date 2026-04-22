@@ -39,6 +39,8 @@
                     npl_ir_to_source_text/2,
                     npl_ir_to_source_file/2,
                     npl_code_generate/2,
+                    npl_ir_to_clause_public/2,
+                    npl_ir_to_body_public/2,
                     npl_ir_to_body/2,
                     npl_generate_full/3,
                     npl_ir_to_body_emitting/3,
@@ -88,6 +90,36 @@ npl_ir_to_source_file(IR, File) :-
 npl_codegen_write_clauses_(Stream, Clauses) :-
     maplist(portray_clause(Stream), Clauses).
 
+%% Stage 2 public clause/body conversion wrappers
+%%
+%% Supported IR body nodes in basic mode:
+%%   ir_true
+%%   ir_fail
+%%   ir_cut
+%%   ir_repeat
+%%   ir_not/1
+%%   ir_call/1
+%%   ir_seq/2
+%%   ir_disj/2
+%%   ir_if/3
+%%   ir_source_marker/2
+%%   ir_memo_site/2
+%%   ir_loop_candidate/1
+%%   ir_addr_loop/3
+%%   ir_choice_point/1 (non-empty list)
+
+%% npl_ir_to_clause_public/2
+%% Public, validated wrapper for ir_clause/3 -> Prolog clause conversion.
+npl_ir_to_clause_public(IRClause, Clause) :-
+    npl_cg_validate_ir_clause_(IRClause, npl_ir_to_clause_public/2),
+    npl_ir_to_clause(IRClause, Clause).
+
+%% npl_ir_to_body_public/2
+%% Public, validated wrapper for IR body -> Prolog body conversion.
+npl_ir_to_body_public(IRBody, Body) :-
+    npl_cg_validate_ir_body_(IRBody, npl_ir_to_body_public/2),
+    npl_ir_to_body(IRBody, Body).
+
 %% npl_ir_to_clause/2
 %  Translate one ir_clause/3 to a Prolog clause term.
 %  var(Name) terms in head and body are replaced by real Prolog variables
@@ -134,6 +166,62 @@ npl_ir_to_body(ir_choice_point([Alt]), Body) :- !,
 npl_ir_to_body(ir_choice_point([Alt|Alts]), (BodyA ; BodyB)) :- !,
     npl_ir_to_body(Alt, BodyA),
     npl_ir_to_body(ir_choice_point(Alts), BodyB).
+
+%% npl_cg_validate_ir_clause_/2
+npl_cg_validate_ir_clause_(IRClause, Context) :-
+    ( var(IRClause) ->
+        throw(error(instantiation_error,
+                    context(Context, 'IR clause must be instantiated')))
+    ; IRClause = ir_clause(_, IRBody, _) ->
+        npl_cg_validate_ir_body_(IRBody, Context)
+    ;
+        throw(error(domain_error(npl_ir_clause, IRClause),
+                    context(Context, 'Expected ir_clause(Head, Body, Info)')))
+    ).
+
+%% npl_cg_validate_ir_body_/2
+npl_cg_validate_ir_body_(IRBody, Context) :-
+    ( var(IRBody) ->
+        throw(error(instantiation_error,
+                    context(Context, 'IR body must be instantiated')))
+    ; npl_cg_supported_ir_body_(IRBody) ->
+        true
+    ;
+        throw(error(domain_error(npl_ir_body, IRBody),
+                    context(Context, 'Unsupported or malformed basic-mode IR body')))
+    ).
+
+%% npl_cg_supported_ir_body_/1
+npl_cg_supported_ir_body_(ir_true).
+npl_cg_supported_ir_body_(ir_fail).
+npl_cg_supported_ir_body_(ir_cut).
+npl_cg_supported_ir_body_(ir_repeat).
+npl_cg_supported_ir_body_(ir_not(G)) :-
+    npl_cg_supported_ir_body_(G).
+npl_cg_supported_ir_body_(ir_call(Goal)) :-
+    nonvar(Goal).
+npl_cg_supported_ir_body_(ir_seq(A, B)) :-
+    npl_cg_supported_ir_body_(A),
+    npl_cg_supported_ir_body_(B).
+npl_cg_supported_ir_body_(ir_disj(A, B)) :-
+    npl_cg_supported_ir_body_(A),
+    npl_cg_supported_ir_body_(B).
+npl_cg_supported_ir_body_(ir_if(Cond, Then, Else)) :-
+    npl_cg_supported_ir_body_(Cond),
+    npl_cg_supported_ir_body_(Then),
+    npl_cg_supported_ir_body_(Else).
+npl_cg_supported_ir_body_(ir_source_marker(_, IRBody)) :-
+    npl_cg_supported_ir_body_(IRBody).
+npl_cg_supported_ir_body_(ir_memo_site(_, IRBody)) :-
+    npl_cg_supported_ir_body_(IRBody).
+npl_cg_supported_ir_body_(ir_loop_candidate(IRBody)) :-
+    npl_cg_supported_ir_body_(IRBody).
+npl_cg_supported_ir_body_(ir_addr_loop(_, _, IRBody)) :-
+    npl_cg_supported_ir_body_(IRBody).
+npl_cg_supported_ir_body_(ir_choice_point(Alts)) :-
+    is_list(Alts),
+    Alts = [_|_],
+    maplist(npl_cg_supported_ir_body_, Alts).
 
 %%====================================================================
 %% Stage 16: Annotated code generation
