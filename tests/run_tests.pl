@@ -146,6 +146,11 @@ run_test_suite :-
     test(api3_ir_to_body_public),
     test(api3_ir_to_clause_public_error),
     test(api3_ir_to_body_public_error),
+    test(api3_source_to_ir),
+    test(api3_source_to_optimised_ir),
+    test(api3_roundtrip_source),
+    test(api3_roundtrip_source_text),
+    test(api3_roundtrip_source_file),
     test(ir_fail),
     test(ir_not),
     test(ir_repeat),
@@ -725,6 +730,72 @@ run_test(api3_ir_to_body_public_error) :-
         error(domain_error(npl_ir_body, ir_unsupported(foo)), _),
         true
     ).
+
+%% --- PR3 Stage 3: Source round-trip helpers ---
+
+run_test(api3_source_to_ir) :-
+    setup_call_cleanup(
+        tmp_file(npl_api3_source_to_ir_test, Path),
+        ( setup_call_cleanup(
+              open(Path, write, S),
+              write(S, 'rt_api3_a :- rt_api3_b.\nrt_api3_b.\n'),
+              close(S)),
+          npl_source_to_ir(Path, IR),
+          IR = [ir_clause(rt_api3_a, _, _)|_] ),
+        delete_file(Path)).
+
+run_test(api3_source_to_optimised_ir) :-
+    setup_call_cleanup(
+        tmp_file(npl_api3_source_to_optimised_ir_test, Path),
+        ( setup_call_cleanup(
+              open(Path, write, S),
+              write(S, 'rt_api3_c :- rt_api3_d.\nrt_api3_d.\n'),
+              close(S)),
+          npl_source_to_optimised_ir(Path, OptIR),
+          is_list(OptIR),
+          OptIR = [ir_clause(rt_api3_c, _, _)|_] ),
+        delete_file(Path)).
+
+run_test(api3_roundtrip_source) :-
+    setup_call_cleanup(
+        tmp_file(npl_api3_roundtrip_source_test, Path),
+        ( setup_call_cleanup(
+              open(Path, write, S),
+              write(S, 'rt_api3_e :- rt_api3_f.\nrt_api3_f.\n'),
+              close(S)),
+          npl_roundtrip_source(Path, Clauses),
+          member((rt_api3_e :- rt_api3_f), Clauses),
+          member(rt_api3_f, Clauses) ),
+        delete_file(Path)).
+
+run_test(api3_roundtrip_source_text) :-
+    setup_call_cleanup(
+        tmp_file(npl_api3_roundtrip_source_text_test, Path),
+        ( setup_call_cleanup(
+              open(Path, write, S),
+              write(S, 'rt_api3_g :- rt_api3_h.\nrt_api3_h.\n'),
+              close(S)),
+          npl_roundtrip_source_text(Path, Text),
+          atom(Text),
+          sub_atom(Text, _, _, _, 'rt_api3_g :-'),
+          sub_atom(Text, _, _, _, 'rt_api3_h') ),
+        delete_file(Path)).
+
+run_test(api3_roundtrip_source_file) :-
+    setup_call_cleanup(
+        tmp_file(npl_api3_roundtrip_source_file_in_test, InPath),
+        setup_call_cleanup(
+            tmp_file(npl_api3_roundtrip_source_file_out_test, OutPath),
+            ( setup_call_cleanup(
+                  open(InPath, write, S),
+                  write(S, 'rt_api3_i :- rt_api3_j.\nrt_api3_j.\n'),
+                  close(S)),
+              npl_roundtrip_source_file(InPath, OutPath),
+              consult(OutPath),
+              current_predicate(rt_api3_i/0),
+              rt_api3_i ),
+            delete_file(OutPath)),
+        delete_file(InPath)).
 
 %% --- Additional prelude tests ---
 

@@ -41,6 +41,11 @@
                     npl_code_generate/2,
                     npl_ir_to_clause_public/2,
                     npl_ir_to_body_public/2,
+                    npl_source_to_ir/2,
+                    npl_source_to_optimised_ir/2,
+                    npl_roundtrip_source/2,
+                    npl_roundtrip_source_text/2,
+                    npl_roundtrip_source_file/2,
                     npl_ir_to_body/2,
                     npl_generate_full/3,
                     npl_ir_to_body_emitting/3,
@@ -49,6 +54,12 @@
                     npl_cg_loop_max_depth/1]).
 
 :- discontiguous npl_ir_to_body_emitting/3.
+
+:- use_module('./lexer', [npl_lex/2]).
+:- use_module('./parser', [npl_parse/2]).
+:- use_module('./semantic_analyser', [npl_analyse/2]).
+:- use_module('./intermediate_codegen', [npl_intermediate/2]).
+:- use_module('./optimiser', [npl_optimise/2]).
 
 %% npl_generate/2
 %  npl_generate(+OptIR, -Neurocode)
@@ -89,6 +100,40 @@ npl_ir_to_source_file(IR, File) :-
 
 npl_codegen_write_clauses_(Stream, Clauses) :-
     maplist(portray_clause(Stream), Clauses).
+
+%% Stage 3 source round-trip helpers
+
+%% npl_source_to_ir/2
+%  Public helper for source file -> IR conversion.
+npl_source_to_ir(SourceFile, IR) :-
+    npl_lex(SourceFile, Tokens),
+    npl_parse(Tokens, AST),
+    npl_analyse(AST, AAST),
+    npl_intermediate(AAST, IR).
+
+%% npl_source_to_optimised_ir/2
+%  Public helper for source file -> optimised IR conversion.
+npl_source_to_optimised_ir(SourceFile, OptIR) :-
+    npl_source_to_ir(SourceFile, IR),
+    npl_optimise(IR, OptIR).
+
+%% npl_roundtrip_source/2
+%  Public helper for source file -> optimised regenerated clauses.
+npl_roundtrip_source(SourceFile, Clauses) :-
+    npl_source_to_optimised_ir(SourceFile, OptIR),
+    npl_ir_to_source(OptIR, Clauses).
+
+%% npl_roundtrip_source_text/2
+%  Public helper for source file -> optimised regenerated source text.
+npl_roundtrip_source_text(SourceFile, Text) :-
+    npl_source_to_optimised_ir(SourceFile, OptIR),
+    npl_ir_to_source_text(OptIR, Text).
+
+%% npl_roundtrip_source_file/2
+%  Public helper for source file -> optimised regenerated source file.
+npl_roundtrip_source_file(SourceFile, OutFile) :-
+    npl_source_to_optimised_ir(SourceFile, OptIR),
+    npl_ir_to_source_file(OptIR, OutFile).
 
 %% Stage 2 public clause/body conversion wrappers
 %%
