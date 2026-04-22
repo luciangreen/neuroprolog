@@ -138,6 +138,10 @@ run_test_suite :-
     test(wam_backtrack),
     test(wam_execute_instr),
     test(codegen_basic),
+    test(api3_ir_to_source),
+    test(api3_code_generate_alias),
+    test(api3_ir_to_source_text),
+    test(api3_ir_to_source_file),
     test(ir_fail),
     test(ir_not),
     test(ir_repeat),
@@ -660,6 +664,35 @@ run_test(wam_execute_instr) :-
 run_test(codegen_basic) :-
     npl_generate([ir_clause(hello, ir_true, info(head:ok,body:ok))], Code),
     Code = [hello].
+
+%% --- PR3 Stage 1: Public IR→source wrappers ---
+
+run_test(api3_ir_to_source) :-
+    IR = [ir_clause(p, ir_call(q), info([]))],
+    npl_ir_to_source(IR, Clauses),
+    Clauses = [(p :- q)].
+
+run_test(api3_code_generate_alias) :-
+    IR = [ir_clause(foo(1), ir_true, info([]))],
+    npl_code_generate(IR, Clauses),
+    Clauses = [foo(1)].
+
+run_test(api3_ir_to_source_text) :-
+    IR = [ir_clause(p, ir_call(q), info([]))],
+    npl_ir_to_source_text(IR, Text),
+    atom(Text),
+    sub_atom(Text, _, _, _, 'p :-'),
+    sub_atom(Text, _, _, _, 'q').
+
+run_test(api3_ir_to_source_file) :-
+    IR = [ir_clause(file_api3, ir_true, info([]))],
+    setup_call_cleanup(
+        tmp_file(npl_ir_to_source_file_test, Path),
+        ( npl_ir_to_source_file(IR, Path),
+          consult(Path),
+          current_predicate(file_api3/0),
+          file_api3 ),
+        delete_file(Path)).
 
 %% --- Additional prelude tests ---
 
