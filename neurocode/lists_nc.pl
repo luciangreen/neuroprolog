@@ -4,37 +4,25 @@
 % This file is valid Prolog — load with consult/1.
 % Do not add binary or opaque representations.
 %
-% == Loop structures ==
-%   demo_lists/0 expresses iteration over a list using standard Prolog
-%   predicates (npl_append/3, npl_length/2, npl_reverse/2, npl_sum_list/2).
-%   These are tail-recursive and equivalent to iterative loops.
-%
-% == Source links ==
-%   Original source: examples/lists.pl
-%   Cognitive marker: none
-%   Recursion class:  none
-
-:- module(lists_nc, [demo_lists/0]).
-
-:- use_module('src/prelude').
 
 %% demo_lists/0
-%% source: pos(7,1)  file: examples/lists.pl
-%% recursion: none
+%  file: examples/lists.pl
+
 demo_lists :-
-    npl_append([1, 2, 3], [4, 5, 6], L),
+    npl_append([1, 2, 3], [4, 5, 6], A),
     write('append: '),
-    write(L),
+    write(A),
     nl,
-    npl_length(L, Len),
+    npl_length(A, B),
     write('length: '),
-    write(Len),
+    write(B),
     nl,
-    npl_reverse(L, R),
+    npl_reverse(A, C),
     write('reverse: '),
-    write(R),
+    write(C),
     nl,
-    npl_sum_list(L, S),
+    npl_sum_list(A, D),
     write('sum: '),
-    write(S),
+    write(D),
     nl.
+
