@@ -142,6 +142,10 @@ run_test_suite :-
     test(api3_code_generate_alias),
     test(api3_ir_to_source_text),
     test(api3_ir_to_source_file),
+    test(api3_ir_to_clause_public),
+    test(api3_ir_to_body_public),
+    test(api3_ir_to_clause_public_error),
+    test(api3_ir_to_body_public_error),
     test(ir_fail),
     test(ir_not),
     test(ir_repeat),
@@ -693,6 +697,34 @@ run_test(api3_ir_to_source_file) :-
           current_predicate(file_api3/0),
           file_api3 ),
         delete_file(Path)).
+
+%% --- PR3 Stage 2: Public clause/body wrappers ---
+
+run_test(api3_ir_to_clause_public) :-
+    IRClause = ir_clause(p, ir_call(q), info([])),
+    npl_ir_to_clause_public(IRClause, Clause),
+    Clause = (p :- q).
+
+run_test(api3_ir_to_body_public) :-
+    IRBody = ir_seq(ir_call(a), ir_call(b)),
+    npl_ir_to_body_public(IRBody, Body),
+    Body = (a, b).
+
+run_test(api3_ir_to_clause_public_error) :-
+    catch(
+        ( npl_ir_to_clause_public(not_an_ir_clause, _),
+          fail ),
+        error(domain_error(npl_ir_clause, not_an_ir_clause), _),
+        true
+    ).
+
+run_test(api3_ir_to_body_public_error) :-
+    catch(
+        ( npl_ir_to_body_public(ir_unsupported(foo), _),
+          fail ),
+        error(domain_error(npl_ir_body, ir_unsupported(foo)), _),
+        true
+    ).
 
 %% --- Additional prelude tests ---
 
