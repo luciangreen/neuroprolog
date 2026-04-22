@@ -151,6 +151,9 @@ run_test_suite :-
     test(api3_roundtrip_source),
     test(api3_roundtrip_source_text),
     test(api3_roundtrip_source_file),
+    test(api3_stage4_conjunction_formatting),
+    test(api3_stage4_arithmetic_operator_formatting),
+    test(api3_stage4_predicate_group_spacing),
     test(ir_fail),
     test(ir_not),
     test(ir_repeat),
@@ -796,6 +799,25 @@ run_test(api3_roundtrip_source_file) :-
               rt_api3_i ),
             delete_file(OutPath)),
         delete_file(InPath)).
+
+%% --- PR3 Stage 4: Formatting and readability ---
+
+run_test(api3_stage4_conjunction_formatting) :-
+    IR = [ir_clause(p, ir_seq(ir_call(a), ir_call(b)), info([]))],
+    npl_ir_to_source_text(IR, Text),
+    sub_atom(Text, _, _, _, 'p :-\n    a,\n    b.').
+
+run_test(api3_stage4_arithmetic_operator_formatting) :-
+    IR = [ir_clause(p(var('X'), var('Y')), ir_call(is(var('Y'), var('X'))), info([]))],
+    npl_ir_to_source_text(IR, Text),
+    sub_atom(Text, _, _, _, 'p(X, Y) :-\n    Y is X.').
+
+run_test(api3_stage4_predicate_group_spacing) :-
+    IR = [ ir_clause(p, ir_true, info([])),
+           ir_clause(p, ir_call(q), info([])),
+           ir_clause(r, ir_true, info([])) ],
+    npl_ir_to_source_text(IR, Text),
+    sub_atom(Text, _, _, _, 'p.\np :-\n    q.\n\nr.').
 
 %% --- Additional prelude tests ---
 

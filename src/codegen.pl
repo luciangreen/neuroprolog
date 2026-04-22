@@ -99,7 +99,48 @@ npl_ir_to_source_file(IR, File) :-
         close(Stream)).
 
 npl_codegen_write_clauses_(Stream, Clauses) :-
-    maplist(portray_clause(Stream), Clauses).
+    npl_codegen_write_clauses_(Stream, Clauses, none).
+
+npl_codegen_write_clauses_(_, [], _).
+npl_codegen_write_clauses_(Stream, [Clause|Rest], PrevSig) :-
+    npl_codegen_clause_sig_(Clause, Sig),
+    ( PrevSig \= none, Sig \= PrevSig ->
+        nl(Stream)
+    ;
+        true
+    ),
+    npl_codegen_write_clause_(Stream, Clause),
+    npl_codegen_write_clauses_(Stream, Rest, Sig).
+
+npl_codegen_clause_sig_((Head :- _), Sig) :- !,
+    npl_codegen_head_sig_(Head, Sig).
+npl_codegen_clause_sig_(Head, Sig) :-
+    npl_codegen_head_sig_(Head, Sig).
+
+npl_codegen_head_sig_(Head, Sig) :-
+    ( callable(Head) ->
+        functor(Head, F, A),
+        Sig = F/A
+    ;
+        Sig = unknown/0
+    ).
+
+npl_codegen_write_clause_(Stream, (Head :- Body)) :- !,
+    write_term(Stream, Head, [quoted(true), numbervars(true)]),
+    write(Stream, ' :-'), nl(Stream),
+    npl_codegen_write_body_(Stream, Body, 4),
+    write(Stream, '.'), nl(Stream).
+npl_codegen_write_clause_(Stream, Fact) :-
+    write_term(Stream, Fact, [quoted(true), numbervars(true)]),
+    write(Stream, '.'), nl(Stream).
+
+npl_codegen_write_body_(Stream, (A, B), Indent) :- !,
+    npl_codegen_write_body_(Stream, A, Indent),
+    write(Stream, ','), nl(Stream),
+    npl_codegen_write_body_(Stream, B, Indent).
+npl_codegen_write_body_(Stream, Goal, Indent) :-
+    tab(Stream, Indent),
+    write_term(Stream, Goal, [quoted(true), numbervars(true), priority(999)]).
 
 %% Stage 3 source round-trip helpers
 
