@@ -99,7 +99,72 @@ npl_ir_to_source_file(IR, File) :-
         close(Stream)).
 
 npl_codegen_write_clauses_(Stream, Clauses) :-
-    maplist(portray_clause(Stream), Clauses).
+    npl_codegen_write_clauses_(Stream, Clauses, none).
+
+npl_codegen_write_clauses_(_, [], _).
+npl_codegen_write_clauses_(Stream, [Clause|Rest], PrevSig) :-
+    npl_codegen_clause_sig_(Clause, Sig),
+    ( PrevSig \= none, Sig \= PrevSig ->
+        nl(Stream)
+    ;
+        true
+    ),
+    npl_codegen_write_clause_(Stream, Clause),
+    npl_codegen_write_clauses_(Stream, Rest, Sig).
+
+npl_codegen_clause_sig_((Head :- _), Sig) :- !,
+    npl_codegen_head_sig_(Head, Sig).
+npl_codegen_clause_sig_(Head, Sig) :-
+    npl_codegen_head_sig_(Head, Sig).
+
+npl_codegen_head_sig_(Head, Sig) :-
+    ( callable(Head) ->
+        functor(Head, F, A),
+        Sig = F/A
+    ;
+        Sig = noncallable(Head)
+    ).
+
+npl_codegen_write_clause_(Stream, (Head :- Body)) :- !,
+    npl_codegen_body_indent_(Indent),
+    write_term(Stream, Head, [quoted(true), numbervars(true)]),
+    write(Stream, ' :-'), nl(Stream),
+    npl_codegen_write_body_(Stream, Body, Indent),
+    write(Stream, '.'), nl(Stream).
+npl_codegen_write_clause_(Stream, Fact) :-
+    write_term(Stream, Fact, [quoted(true), numbervars(true)]),
+    write(Stream, '.'), nl(Stream).
+
+npl_codegen_write_body_(Stream, Body, Indent) :-
+    npl_codegen_conjuncts_(Body, Goals),
+    npl_codegen_write_goals_(Stream, Goals, Indent).
+
+npl_codegen_conjuncts_((A, B), Goals) :- !,
+    npl_codegen_conjuncts_(A, GA),
+    npl_codegen_conjuncts_(B, GB),
+    append(GA, GB, Goals).
+npl_codegen_conjuncts_(Goal, [Goal]).
+
+npl_codegen_write_goals_(Stream, [Goal], Indent) :- !,
+    npl_codegen_write_goal_(Stream, Goal, Indent).
+npl_codegen_write_goals_(Stream, [Goal|Goals], Indent) :-
+    npl_codegen_write_goal_(Stream, Goal, Indent),
+    write(Stream, ','), nl(Stream),
+    npl_codegen_write_goals_(Stream, Goals, Indent).
+
+%% npl_codegen_goal_priority_/1
+%  Priority used when writing each goal inside conjunction formatting.
+%  999 is the precedence context of conjunction arguments, so terms such
+%  as disjunctions and if-then-else are parenthesised only when needed.
+npl_codegen_goal_priority_(999).
+
+%% npl_codegen_body_indent_/1
+%  Indentation width for each body goal line in pretty-printed clauses.
+npl_codegen_body_indent_(4).
+npl_codegen_write_goal_(Stream, Goal, Indent) :-
+    npl_codegen_goal_priority_(Priority),
+    tab(Stream, Indent),
+    write_term(Stream, Goal, [quoted(true), numbervars(true), priority(Priority)]).
 
 %% Stage 3 source round-trip helpers
 

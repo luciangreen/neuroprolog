@@ -151,6 +151,9 @@ run_test_suite :-
     test(api3_roundtrip_source),
     test(api3_roundtrip_source_text),
     test(api3_roundtrip_source_file),
+    test(api3_stage4_conjunction_formatting),
+    test(api3_stage4_arithmetic_operator_formatting),
+    test(api3_stage4_predicate_group_spacing),
     test(ir_fail),
     test(ir_not),
     test(ir_repeat),
@@ -796,6 +799,29 @@ run_test(api3_roundtrip_source_file) :-
               rt_api3_i ),
             delete_file(OutPath)),
         delete_file(InPath)).
+
+%% --- PR3 Stage 4: Formatting and readability ---
+
+run_test(api3_stage4_conjunction_formatting) :-
+    IR = [ir_clause(conjunction_test, ir_seq(ir_call(first_goal), ir_call(second_goal)), info([]))],
+    npl_ir_to_source_text(IR, Text),
+    sub_atom(Text, _, _, _, 'conjunction_test :-\n    first_goal,\n    second_goal.').
+
+run_test(api3_stage4_arithmetic_operator_formatting) :-
+    IR = [ir_clause(p(var('X'), var('Y')), ir_call(is(var('Y'), var('X'))), info([]))],
+    npl_ir_to_source_text(IR, Text),
+    sub_atom(Text, _, _, _, 'p('),
+    sub_atom(Text, _, _, _, ' :-\n    '),
+    sub_atom(Text, _, _, _, ' is ').
+
+run_test(api3_stage4_predicate_group_spacing) :-
+    IR = [ ir_clause(grouped_pred, ir_true, info([])),
+           ir_clause(grouped_pred, ir_call(grouped_dep), info([])),
+           ir_clause(other_group, ir_true, info([])) ],
+    npl_ir_to_source_text(IR, Text),
+    sub_atom(Text, _, _, _, 'grouped_pred.\ngrouped_pred :-\n    grouped_dep.\n\nother_group.'),
+    \+ sub_atom(Text, _, _, _, 'grouped_pred :- true.'),
+    \+ sub_atom(Text, _, _, _, '\n\n\n').
 
 %% --- Additional prelude tests ---
 
