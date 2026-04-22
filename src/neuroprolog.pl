@@ -6,9 +6,13 @@
 %   swipl -g "consult('src/neuroprolog')" -g "npl_main" -t halt
 
 :- module(neuroprolog, [npl_main/0, npl_compile/2, npl_interpret/1,
-                        npl_compile_with_pipeline/3,
-                        npl_compile_safe/2,
-                        npl_write_neurocode/2, npl_write_neurocode/3]).
+                         npl_compile_with_pipeline/3,
+                         npl_compile_safe/2,
+                         npl_write_neurocode/2, npl_write_neurocode/3,
+                         npl_ir_to_source/2,
+                         npl_ir_to_source_text/2,
+                         npl_ir_to_source_file/2,
+                         npl_code_generate/2]).
 
 :- use_module(library(lists)).
 

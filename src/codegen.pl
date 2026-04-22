@@ -35,6 +35,10 @@
 %   NeuroProlog lexer/parser pipeline (self-hosting support).
 
 :- module(codegen, [npl_generate/2,
+                    npl_ir_to_source/2,
+                    npl_ir_to_source_text/2,
+                    npl_ir_to_source_file/2,
+                    npl_code_generate/2,
                     npl_ir_to_body/2,
                     npl_generate_full/3,
                     npl_ir_to_body_emitting/3,
@@ -52,6 +56,37 @@
 %  valid, executable Prolog.
 npl_generate(IR, Neurocode) :-
     maplist(npl_ir_to_clause, IR, Neurocode).
+
+%% Stage 1 public IR-to-source wrappers
+
+%% npl_ir_to_source/2
+%  Public wrapper for IR->clause generation.
+npl_ir_to_source(IR, Clauses) :-
+    npl_generate(IR, Clauses).
+
+%% npl_code_generate/2
+%  Compatibility alias for users expecting code-generation naming.
+npl_code_generate(IR, Clauses) :-
+    npl_ir_to_source(IR, Clauses).
+
+%% npl_ir_to_source_text/2
+%  Public wrapper for IR->readable Prolog text generation.
+npl_ir_to_source_text(IR, Text) :-
+    npl_ir_to_source(IR, Clauses),
+    with_output_to(atom(Text),
+        npl_codegen_write_clauses_(current_output, Clauses)).
+
+%% npl_ir_to_source_file/2
+%  Public wrapper for IR->consultable Prolog file generation.
+npl_ir_to_source_file(IR, File) :-
+    npl_ir_to_source_text(IR, Text),
+    setup_call_cleanup(
+        open(File, write, Stream),
+        write(Stream, Text),
+        close(Stream)).
+
+npl_codegen_write_clauses_(Stream, Clauses) :-
+    maplist(portray_clause(Stream), Clauses).
 
 %% npl_ir_to_clause/2
 %  Translate one ir_clause/3 to a Prolog clause term.
