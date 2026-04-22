@@ -154,6 +154,10 @@ run_test_suite :-
     test(api3_stage4_conjunction_formatting),
     test(api3_stage4_arithmetic_operator_formatting),
     test(api3_stage4_predicate_group_spacing),
+    test(api3_stage5_ir_to_source_emitting),
+    test(api3_stage5_ir_to_source_text_emitting_comments),
+    test(api3_stage5_ir_to_source_text_emitting_no_comments),
+    test(api3_stage5_ir_to_source_file_emitting),
     test(ir_fail),
     test(ir_not),
     test(ir_repeat),
@@ -822,6 +826,45 @@ run_test(api3_stage4_predicate_group_spacing) :-
     sub_atom(Text, _, _, _, 'grouped_pred.\ngrouped_pred :-\n    grouped_dep.\n\nother_group.'),
     \+ sub_atom(Text, _, _, _, 'grouped_pred :- true.'),
     \+ sub_atom(Text, _, _, _, '\n\n\n').
+
+%% --- PR3 Stage 5: Rich emitting mode ---
+
+run_test(api3_stage5_ir_to_source_emitting) :-
+    IR = [ir_clause(memo_test(var('X')),
+                    ir_memo_site(var('X'), ir_call(pred(var('X')))),
+                    [memo_site:true])],
+    npl_ir_to_source(IR, [mode(emitting)], Clauses),
+    Clauses = [(_Head :- Body)],
+    sub_term(npl_memo_cache(_, _, _), Body).
+
+run_test(api3_stage5_ir_to_source_text_emitting_comments) :-
+    IR = [ir_clause(emitting_comment_test,
+                    ir_loop_candidate(ir_call(work)),
+                    [loop_candidate:true])],
+    npl_ir_to_source_text(IR, [mode(emitting), include_comments(true), source_file('stage5_source.pl')], Text),
+    atom(Text),
+    sub_atom(Text, _, _, _, '%'),
+    sub_atom(Text, _, _, _, 'stage5_source.pl').
+
+run_test(api3_stage5_ir_to_source_text_emitting_no_comments) :-
+    IR = [ir_clause(no_comment_memo(var('K')),
+                    ir_memo_site(var('K'), ir_call(work(var('K')))),
+                    [memo_site:true])],
+    npl_ir_to_source_text(IR, [mode(emitting), include_comments(false)], Text),
+    atom(Text),
+    sub_atom(Text, _, _, _, 'npl_memo_cache'),
+    \+ sub_atom(Text, _, _, _, '%  [memo_site]').
+
+run_test(api3_stage5_ir_to_source_file_emitting) :-
+    IR = [ir_clause(file_emitting(var('X')),
+                    ir_addr_loop(var('X'), walk/1, ir_call(step(var('X')))),
+                    [loop_candidate:true])],
+    setup_call_cleanup(
+        tmp_file(npl_api3_stage5_emitting_file_test, Path),
+        ( npl_ir_to_source_file(IR, [mode(emitting), include_comments(false)], Path),
+          consult(Path),
+          current_predicate(file_emitting/1) ),
+        delete_file(Path)).
 
 %% --- Additional prelude tests ---
 

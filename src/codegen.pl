@@ -36,8 +36,11 @@
 
 :- module(codegen, [npl_generate/2,
                     npl_ir_to_source/2,
+                    npl_ir_to_source/3,
                     npl_ir_to_source_text/2,
+                    npl_ir_to_source_text/3,
                     npl_ir_to_source_file/2,
+                    npl_ir_to_source_file/3,
                     npl_code_generate/2,
                     npl_ir_to_clause_public/2,
                     npl_ir_to_body_public/2,
@@ -75,7 +78,17 @@ npl_generate(IR, Neurocode) :-
 %% npl_ir_to_source/2
 %  Public wrapper for IR->clause generation.
 npl_ir_to_source(IR, Clauses) :-
-    npl_generate(IR, Clauses).
+    npl_ir_to_source(IR, [], Clauses).
+
+%% npl_ir_to_source/3
+%  Option-aware IR->clause generation.
+%  Supported options:
+%    mode(simple|emitting)
+%    include_comments(true|false)   % accepted for API consistency
+%    source_file(File)
+npl_ir_to_source(IR, Options, Clauses) :-
+    npl_cg_parse_codegen_options_(Options, Mode, _IncludeComments, SrcFile),
+    npl_cg_ir_to_source_mode_(Mode, IR, SrcFile, Clauses).
 
 %% npl_code_generate/2
 %  Compatibility alias for users expecting code-generation naming.
@@ -85,18 +98,92 @@ npl_code_generate(IR, Clauses) :-
 %% npl_ir_to_source_text/2
 %  Public wrapper for IR->readable Prolog text generation.
 npl_ir_to_source_text(IR, Text) :-
-    npl_ir_to_source(IR, Clauses),
-    with_output_to(atom(Text),
-        npl_codegen_write_clauses_(current_output, Clauses)).
+    npl_ir_to_source_text(IR, [], Text).
+
+%% npl_ir_to_source_text/3
+%  Option-aware IR->readable Prolog text generation.
+npl_ir_to_source_text(IR, Options, Text) :-
+    npl_cg_parse_codegen_options_(Options, Mode, IncludeComments, SrcFile),
+    ( Mode = emitting,
+      IncludeComments == true ->
+        npl_generate_text(IR, SrcFile, Text)
+    ;
+        npl_cg_ir_to_source_mode_(Mode, IR, SrcFile, Clauses),
+        with_output_to(atom(Text),
+            npl_codegen_write_clauses_(current_output, Clauses))
+    ).
 
 %% npl_ir_to_source_file/2
 %  Public wrapper for IR->consultable Prolog file generation.
 npl_ir_to_source_file(IR, File) :-
-    npl_ir_to_source_text(IR, Text),
+    npl_ir_to_source_file(IR, [], File).
+
+%% npl_ir_to_source_file/3
+%  Option-aware IR->consultable Prolog file generation.
+npl_ir_to_source_file(IR, Options, File) :-
+    npl_ir_to_source_text(IR, Options, Text),
     setup_call_cleanup(
         open(File, write, Stream),
         write(Stream, Text),
         close(Stream)).
+
+npl_cg_ir_to_source_mode_(simple, IR, _SrcFile, Clauses) :-
+    npl_generate(IR, Clauses).
+npl_cg_ir_to_source_mode_(emitting, IR, SrcFile, Clauses) :-
+    npl_generate_full(IR, SrcFile, Segments),
+    maplist(npl_cg_segment_clause_, Segments, Clauses).
+
+npl_cg_segment_clause_(code_segment(_, Clause, _), Clause) :- !.
+npl_cg_segment_clause_(Clause, Clause).
+
+npl_cg_parse_codegen_options_(Options, Mode, IncludeComments, SrcFile) :-
+    ( var(Options) ->
+        throw(error(instantiation_error,
+                    context(npl_ir_to_source/3, 'Options must be instantiated')))
+    ; is_list(Options) ->
+        npl_cg_parse_codegen_options_(Options, simple, false, '',
+                                      Mode, IncludeComments, SrcFile)
+    ;
+        throw(error(type_error(list, Options),
+                    context(npl_ir_to_source/3, 'Options must be a list')))
+    ).
+
+npl_cg_parse_codegen_options_([], Mode, IncludeComments, SrcFile,
+                              Mode, IncludeComments, SrcFile).
+npl_cg_parse_codegen_options_([Option|Rest], Mode0, IncludeComments0, SrcFile0,
+                              Mode, IncludeComments, SrcFile) :-
+    npl_cg_parse_codegen_option_(Option, Mode0, IncludeComments0, SrcFile0,
+                                 Mode1, IncludeComments1, SrcFile1),
+    npl_cg_parse_codegen_options_(Rest, Mode1, IncludeComments1, SrcFile1,
+                                  Mode, IncludeComments, SrcFile).
+
+npl_cg_parse_codegen_option_(mode(simple), _Mode0, IncludeComments, SrcFile,
+                             simple, IncludeComments, SrcFile) :- !.
+npl_cg_parse_codegen_option_(mode(emitting), _Mode0, IncludeComments, SrcFile,
+                             emitting, IncludeComments, SrcFile) :- !.
+npl_cg_parse_codegen_option_(mode(Mode), _Mode0, _IncludeComments0, _SrcFile0,
+                             _, _, _) :- !,
+    throw(error(domain_error(npl_codegen_mode, Mode),
+                context(npl_ir_to_source/3, 'mode must be simple or emitting'))).
+npl_cg_parse_codegen_option_(include_comments(true), Mode, _IncludeComments0, SrcFile,
+                             Mode, true, SrcFile) :- !.
+npl_cg_parse_codegen_option_(include_comments(false), Mode, _IncludeComments0, SrcFile,
+                             Mode, false, SrcFile) :- !.
+npl_cg_parse_codegen_option_(include_comments(Value), _Mode0, _IncludeComments0, _SrcFile0,
+                             _, _, _) :- !,
+    throw(error(domain_error(boolean, Value),
+                context(npl_ir_to_source/3, 'include_comments must be true or false'))).
+npl_cg_parse_codegen_option_(source_file(File), Mode, IncludeComments, _SrcFile0,
+                             Mode, IncludeComments, File) :-
+    ( atom(File) ; string(File) ), !.
+npl_cg_parse_codegen_option_(source_file(File), _Mode0, _IncludeComments0, _SrcFile0,
+                             _, _, _) :- !,
+    throw(error(type_error(atom, File),
+                context(npl_ir_to_source/3, 'source_file must be an atom or string'))).
+npl_cg_parse_codegen_option_(Option, _Mode0, _IncludeComments0, _SrcFile0,
+                             _, _, _) :-
+    throw(error(domain_error(npl_codegen_option, Option),
+                context(npl_ir_to_source/3, 'Unsupported codegen option'))).
 
 npl_codegen_write_clauses_(Stream, Clauses) :-
     npl_codegen_write_clauses_(Stream, Clauses, none).
