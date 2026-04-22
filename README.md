@@ -56,6 +56,23 @@ To run equivalence tests:
 swipl -g "run_equivalence_tests, halt" -t halt       tests/equivalence_tests.pl
 ```
 
+## IR Round-Trip Inspection
+
+Generate optimised source and inspect original-vs-regenerated reports:
+
+```prolog
+?- consult('src/neuroprolog').
+?- npl_roundtrip_source_file('examples/lists.pl', 'out/lists_optimised.pl').
+?- npl_roundtrip_source_diff_text('examples/lists.pl', Diff).
+?- npl_roundtrip_source_side_by_side_text('examples/lists.pl', SideBySide).
+```
+
+Or use the CLI helper:
+
+```sh
+./tools/roundtrip_regen.sh examples/lists.pl out/lists_optimised.pl --diff --side-by-side
+```
+
 ## Documentation
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — System architecture overview

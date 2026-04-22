@@ -158,6 +158,9 @@ run_test_suite :-
     test(api3_stage5_ir_to_source_text_emitting_comments),
     test(api3_stage5_ir_to_source_text_emitting_no_comments),
     test(api3_stage5_ir_to_source_file_emitting),
+    test(api3_stage10_diff_text),
+    test(api3_stage10_side_by_side_text),
+    test(api3_stage10_predicate_headers_and_stable_vars),
     test(ir_fail),
     test(ir_not),
     test(ir_repeat),
@@ -823,7 +826,9 @@ run_test(api3_stage4_predicate_group_spacing) :-
            ir_clause(grouped_pred, ir_call(grouped_dep), info([])),
            ir_clause(other_group, ir_true, info([])) ],
     npl_ir_to_source_text(IR, Text),
-    sub_atom(Text, _, _, _, 'grouped_pred.\ngrouped_pred :-\n    grouped_dep.\n\nother_group.'),
+    sub_atom(Text, _, _, _, '%% ===== predicate: grouped_pred/0 ====='),
+    sub_atom(Text, _, _, _, 'grouped_pred.\ngrouped_pred :-\n    grouped_dep.'),
+    sub_atom(Text, _, _, _, '%% ===== predicate: other_group/0 ====='),
     \+ sub_atom(Text, _, _, _, 'grouped_pred :- true.'),
     \+ sub_atom(Text, _, _, _, '\n\n\n').
 
@@ -865,6 +870,48 @@ run_test(api3_stage5_ir_to_source_file_emitting) :-
           consult(Path),
           current_predicate(file_emitting/1) ),
         delete_file(Path)).
+
+%% --- PR3 Stage 10: Optional future improvements ---
+
+run_test(api3_stage10_diff_text) :-
+    setup_call_cleanup(
+        tmp_file(npl_api3_stage10_diff_in_test, InPath),
+        ( setup_call_cleanup(
+              open(InPath, write, S),
+              write(S, 's10_diff_p :- s10_diff_q.\ns10_diff_q.\n'),
+              close(S)),
+          npl_roundtrip_source_diff_text(InPath, DiffText),
+          atom(DiffText),
+          sub_atom(DiffText, _, _, _, '--- original:'),
+          sub_atom(DiffText, _, _, _, '+++ optimised:'),
+          sub_atom(DiffText, _, _, _, '- s10_diff_p :- s10_diff_q.'),
+          sub_atom(DiffText, _, _, _, '+ s10_diff_p :-') ),
+        delete_file(InPath)).
+
+run_test(api3_stage10_side_by_side_text) :-
+    setup_call_cleanup(
+        tmp_file(npl_api3_stage10_side_by_side_in_test, InPath),
+        ( setup_call_cleanup(
+              open(InPath, write, S),
+              write(S, 's10_side_p :- s10_side_q.\ns10_side_q.\n'),
+              close(S)),
+          npl_roundtrip_source_side_by_side_text(InPath, SideText),
+          atom(SideText),
+          sub_atom(SideText, _, _, _, '% Original'),
+          sub_atom(SideText, _, _, _, 'Optimised'),
+          sub_atom(SideText, _, _, _, ' | ') ),
+        delete_file(InPath)).
+
+run_test(api3_stage10_predicate_headers_and_stable_vars) :-
+    IR = [ ir_clause(s10_head(var('X'), var('Y')),
+                     ir_call(pair(var('X'), var('Y'))),
+                     info([])),
+           ir_clause(s10_other, ir_true, info([])) ],
+    npl_ir_to_source_text(IR, Text),
+    sub_atom(Text, _, _, _, '%% ===== predicate: s10_head/2 ====='),
+    sub_atom(Text, _, _, _, '%% ===== predicate: s10_other/0 ====='),
+    sub_atom(Text, _, _, _, 'pair(A, B)'),
+    \+ sub_atom(Text, _, _, _, '_G').
 
 %% --- Additional prelude tests ---
 
