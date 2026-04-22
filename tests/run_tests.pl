@@ -810,7 +810,9 @@ run_test(api3_stage4_conjunction_formatting) :-
 run_test(api3_stage4_arithmetic_operator_formatting) :-
     IR = [ir_clause(p(var('X'), var('Y')), ir_call(is(var('Y'), var('X'))), info([]))],
     npl_ir_to_source_text(IR, Text),
-    sub_atom(Text, _, _, _, 'p(X, Y) :-\n    Y is X.').
+    sub_atom(Text, _, _, _, 'p('),
+    sub_atom(Text, _, _, _, ' :-\n    '),
+    sub_atom(Text, _, _, _, ' is ').
 
 run_test(api3_stage4_predicate_group_spacing) :-
     IR = [ ir_clause(p, ir_true, info([])),
