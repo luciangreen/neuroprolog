@@ -342,7 +342,7 @@ npl_pipeline_transform_ir([Node|Nodes], Pat, Rep, [Opt|Opts]) :-
 
 npl_pipeline_rewrite_term(Term, Pattern, Replacement, Result) :-
     copy_term(Pattern-Replacement, P-R),
-    Term = P, !,
+    subsumes_term(P, Term), !,
     Result = R.
 npl_pipeline_rewrite_term(ir_clause(H, B, I), Pat, Rep,
                            ir_clause(H, B1, I)) :- !,

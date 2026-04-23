@@ -51,7 +51,7 @@ npl_transform_ir([Node|Nodes], Pattern, Replacement, [OptNode|OptNodes]) :-
 
 npl_rewrite_term(Term, Pattern, Replacement, Result) :-
     copy_term(Pattern-Replacement, P-R),
-    Term = P, !,
+    subsumes_term(P, Term), !,
     Result = R.
 npl_rewrite_term(ir_clause(Head, Body, Info), Pattern, Replacement,
                  ir_clause(Head, Body1, Info)) :- !,
