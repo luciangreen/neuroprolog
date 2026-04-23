@@ -388,6 +388,8 @@ npl_pipeline_unifier_binds_term_var([Var=_|_], TermVars) :-
     npl_pipeline_var_memberchk(Var, TermVars), !.
 npl_pipeline_unifier_binds_term_var([_|Rest], TermVars) :-
     npl_pipeline_unifier_binds_term_var(Rest, TermVars).
+npl_pipeline_unifier_binds_term_var([], _) :-
+    fail.
 
 npl_pipeline_apply_unifier([]).
 npl_pipeline_apply_unifier([Var=Value|Rest]) :-

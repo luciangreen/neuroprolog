@@ -97,6 +97,8 @@ npl_unifier_binds_term_var([Var=_|_], TermVars) :-
     npl_var_memberchk(Var, TermVars), !.
 npl_unifier_binds_term_var([_|Rest], TermVars) :-
     npl_unifier_binds_term_var(Rest, TermVars).
+npl_unifier_binds_term_var([], _) :-
+    fail.
 
 npl_apply_unifier([]).
 npl_apply_unifier([Var=Value|Rest]) :-
