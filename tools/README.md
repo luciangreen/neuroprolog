@@ -38,6 +38,23 @@ Verify NeuroProlog self-hosting invariants and equivalence properties.
 
 Exits with status 0 on success, 1 on any failure.
 
+### roundtrip_regen.sh — Round-Trip Regeneration Script
+
+Generate optimised source from a Prolog file and optionally emit comparison reports.
+
+```sh
+# Generate optimised source file
+./tools/roundtrip_regen.sh examples/lists.pl out/lists_optimised.pl
+
+# Also emit original-vs-optimised reports
+./tools/roundtrip_regen.sh examples/lists.pl out/lists_optimised.pl --diff --side-by-side
+```
+
+When enabled, report files are written next to the output file:
+
+- `*.diff.txt` — line-by-line original vs regenerated diff report
+- `*.side_by_side.txt` — original and regenerated text in side-by-side rows
+
 ## Suggested Future Tools
 
 - `lex_dump.pl` — Dump the token stream for a Prolog file

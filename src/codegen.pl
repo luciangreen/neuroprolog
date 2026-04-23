@@ -45,11 +45,13 @@
                     npl_ir_to_clause_public/2,
                     npl_ir_to_body_public/2,
                     npl_source_to_ir/2,
-                    npl_source_to_optimised_ir/2,
-                    npl_roundtrip_source/2,
-                    npl_roundtrip_source_text/2,
-                    npl_roundtrip_source_file/2,
-                    npl_ir_to_body/2,
+                     npl_source_to_optimised_ir/2,
+                     npl_roundtrip_source/2,
+                     npl_roundtrip_source_text/2,
+                     npl_roundtrip_source_file/2,
+                     npl_roundtrip_source_diff_text/2,
+                     npl_roundtrip_source_side_by_side_text/2,
+                     npl_ir_to_body/2,
                     npl_generate_full/3,
                     npl_ir_to_body_emitting/3,
                     npl_write_neurocode_full/3,
@@ -57,6 +59,8 @@
                     npl_cg_loop_max_depth/1]).
 
 :- discontiguous npl_ir_to_body_emitting/3.
+
+:- use_module(library(readutil), [read_string/3]).
 
 :- use_module('./lexer', [npl_lex/2]).
 :- use_module('./parser', [npl_parse/2]).
@@ -191,8 +195,13 @@ npl_codegen_write_clauses_(Stream, Clauses) :-
 npl_codegen_write_clauses_(_, [], _).
 npl_codegen_write_clauses_(Stream, [Clause|Rest], PrevSig) :-
     npl_codegen_clause_sig_(Clause, Sig),
-    ( PrevSig \= none, Sig \= PrevSig ->
-        nl(Stream)
+    ( Sig \= PrevSig ->
+        ( PrevSig \= none ->
+            nl(Stream)
+        ;
+            true
+        ),
+        npl_codegen_write_section_header_(Stream, Sig)
     ;
         true
     ),
@@ -212,15 +221,24 @@ npl_codegen_head_sig_(Head, Sig) :-
         Sig = noncallable(Head)
     ).
 
+npl_codegen_write_section_header_(Stream, Sig) :-
+    format(Stream, '%% ===== predicate: ~w =====~n', [Sig]).
+
 npl_codegen_write_clause_(Stream, (Head :- Body)) :- !,
+    npl_codegen_prepare_term_((Head :- Body), (StableHead :- StableBody)),
     npl_codegen_body_indent_(Indent),
-    write_term(Stream, Head, [quoted(true), numbervars(true)]),
+    write_term(Stream, StableHead, [quoted(true), numbervars(true)]),
     write(Stream, ' :-'), nl(Stream),
-    npl_codegen_write_body_(Stream, Body, Indent),
+    npl_codegen_write_body_(Stream, StableBody, Indent),
     write(Stream, '.'), nl(Stream).
 npl_codegen_write_clause_(Stream, Fact) :-
-    write_term(Stream, Fact, [quoted(true), numbervars(true)]),
+    npl_codegen_prepare_term_(Fact, StableFact),
+    write_term(Stream, StableFact, [quoted(true), numbervars(true)]),
     write(Stream, '.'), nl(Stream).
+
+npl_codegen_prepare_term_(Term, StableTerm) :-
+    copy_term(Term, StableTerm),
+    numbervars(StableTerm, 0, _).
 
 npl_codegen_write_body_(Stream, Body, Indent) :-
     npl_codegen_conjuncts_(Body, Goals),
@@ -286,6 +304,94 @@ npl_roundtrip_source_text(SourceFile, Text) :-
 npl_roundtrip_source_file(SourceFile, OutFile) :-
     npl_source_to_optimised_ir(SourceFile, OptIR),
     npl_ir_to_source_file(OptIR, OutFile).
+
+%% npl_roundtrip_source_diff_text/2
+%  Public helper for source file -> original vs optimised text diff report.
+npl_roundtrip_source_diff_text(SourceFile, DiffText) :-
+    npl_cg_read_file_atom_(SourceFile, OriginalText),
+    npl_roundtrip_source_text(SourceFile, OptimisedText),
+    npl_cg_text_lines_(OriginalText, OriginalLines),
+    npl_cg_text_lines_(OptimisedText, OptimisedLines),
+    with_output_to(atom(DiffText),
+        ( format('--- original: ~w~n', [SourceFile]),
+          format('+++ optimised: ~w~n', [SourceFile]),
+          npl_cg_write_diff_lines_(OriginalLines, OptimisedLines)
+        )).
+
+%% npl_roundtrip_source_side_by_side_text/2
+%  Public helper for source file -> side-by-side original/optimised report.
+npl_roundtrip_source_side_by_side_text(SourceFile, Text) :-
+    npl_cg_read_file_atom_(SourceFile, OriginalText),
+    npl_roundtrip_source_text(SourceFile, OptimisedText),
+    npl_cg_text_lines_(OriginalText, OriginalLines),
+    npl_cg_text_lines_(OptimisedText, OptimisedLines),
+    npl_cg_max_line_width_(OriginalLines, Width0),
+    Width is max(Width0, 32),
+    with_output_to(atom(Text),
+        ( npl_cg_write_side_by_side_line_('% Original', 'Optimised', Width),
+          npl_cg_write_side_by_side_lines_(OriginalLines, OptimisedLines, Width)
+        )).
+
+npl_cg_read_file_atom_(SourceFile, Text) :-
+    setup_call_cleanup(
+        open(SourceFile, read, Stream),
+        read_string(Stream, _, String),
+        close(Stream)),
+    atom_string(Text, String).
+
+npl_cg_text_lines_(Text, Lines) :-
+    atom_string(Text, String),
+    split_string(String, "\n", "\r", Lines0),
+    ( Lines0 == [""] -> Lines = [] ; Lines = Lines0 ).
+
+npl_cg_write_diff_lines_([], []).
+npl_cg_write_diff_lines_([L|Ls], [L|Rs]) :- !,
+    format('  ~w~n', [L]),
+    npl_cg_write_diff_lines_(Ls, Rs).
+npl_cg_write_diff_lines_([L|Ls], [R|Rs]) :- !,
+    format('- ~w~n', [L]),
+    format('+ ~w~n', [R]),
+    npl_cg_write_diff_lines_(Ls, Rs).
+npl_cg_write_diff_lines_([L|Ls], []) :-
+    format('- ~w~n', [L]),
+    npl_cg_write_diff_lines_(Ls, []).
+npl_cg_write_diff_lines_([], [R|Rs]) :-
+    format('+ ~w~n', [R]),
+    npl_cg_write_diff_lines_([], Rs).
+
+npl_cg_max_line_width_([], 0).
+npl_cg_max_line_width_([Line|Rest], Width) :-
+    string_length(Line, W0),
+    npl_cg_max_line_width_(Rest, W1),
+    Width is max(W0, W1).
+
+npl_cg_write_side_by_side_lines_([], [], _).
+npl_cg_write_side_by_side_lines_([L|Ls], [], Width) :- !,
+    npl_cg_write_side_by_side_line_(L, '', Width),
+    npl_cg_write_side_by_side_lines_(Ls, [], Width).
+npl_cg_write_side_by_side_lines_([], [R|Rs], Width) :- !,
+    npl_cg_write_side_by_side_line_('', R, Width),
+    npl_cg_write_side_by_side_lines_([], Rs, Width).
+npl_cg_write_side_by_side_lines_([L|Ls], [R|Rs], Width) :-
+    npl_cg_write_side_by_side_line_(L, R, Width),
+    npl_cg_write_side_by_side_lines_(Ls, Rs, Width).
+
+npl_cg_write_side_by_side_line_(Left, Right, Width) :-
+    format(atom(LeftAtom), '~w', [Left]),
+    atom_length(LeftAtom, Len),
+    Pad is max(0, Width - Len),
+    write(LeftAtom),
+    npl_cg_write_spaces_(Pad),
+    format(' | ~w~n', [Right]).
+
+npl_cg_write_spaces_(N) :-
+    ( N =< 0 ->
+        true
+    ;
+        write(' '),
+        N1 is N - 1,
+        npl_cg_write_spaces_(N1)
+    ).
 
 %% Stage 2 public clause/body conversion wrappers
 %%

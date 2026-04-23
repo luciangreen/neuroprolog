@@ -22,6 +22,8 @@
                          npl_roundtrip_source/2,
                          npl_roundtrip_source_text/2,
                          npl_roundtrip_source_file/2,
+                         npl_roundtrip_source_diff_text/2,
+                         npl_roundtrip_source_side_by_side_text/2,
                          npl_code_generate/2]).
 
 :- use_module(library(lists)).
