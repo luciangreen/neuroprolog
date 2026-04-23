@@ -260,7 +260,7 @@ npl_gauss_eliminate(Matrix, RREF) :-
     length(FirstRow, NCols),
     npl_gauss_rref(Matrix, NRows, NCols, 1, 1, RREF).
 
-npl_gauss_rref(Rows, NRows, NCols, PivotRow, _Col, Rows) :-
+npl_gauss_rref(Rows, NRows, _NCols, PivotRow, _Col, Rows) :-
     PivotRow > NRows, !.
 npl_gauss_rref(Rows, _NRows, NCols, _PivotRow, Col, Rows) :-
     Col > NCols, !.

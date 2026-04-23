@@ -342,8 +342,13 @@ npl_pipeline_transform_ir([Node|Nodes], Pat, Rep, [Opt|Opts]) :-
 
 npl_pipeline_rewrite_term(Term, Pattern, Replacement, Result) :-
     copy_term(Pattern-Replacement, P-R),
-    subsumes_term(P, Term), !,
+    term_variables(Term, TermVars),
+    unifiable(P, Term, Unifier),
+    \+ npl_pipeline_unifier_binds_term_var(Unifier, TermVars),
+    npl_pipeline_apply_unifier(Unifier), !,
     Result = R.
+npl_pipeline_rewrite_term(Term, _, _, Term) :-
+    var(Term), !.
 npl_pipeline_rewrite_term(ir_clause(H, B, I), Pat, Rep,
                            ir_clause(H, B1, I)) :- !,
     npl_pipeline_rewrite_term(B, Pat, Rep, B1).
@@ -378,6 +383,21 @@ npl_pipeline_rewrite_term(Term, _, _, Term).
 
 npl_pipeline_rewrite_term_alt(Pat, Rep, Alt, Alt1) :-
     npl_pipeline_rewrite_term(Alt, Pat, Rep, Alt1).
+
+npl_pipeline_unifier_binds_term_var([Var=_|_], TermVars) :-
+    npl_pipeline_var_memberchk(Var, TermVars), !.
+npl_pipeline_unifier_binds_term_var([_|Rest], TermVars) :-
+    npl_pipeline_unifier_binds_term_var(Rest, TermVars).
+
+npl_pipeline_apply_unifier([]).
+npl_pipeline_apply_unifier([Var=Value|Rest]) :-
+    Var = Value,
+    npl_pipeline_apply_unifier(Rest).
+
+npl_pipeline_var_memberchk(Var, [H|_]) :-
+    Var == H, !.
+npl_pipeline_var_memberchk(Var, [_|T]) :-
+    npl_pipeline_var_memberchk(Var, T).
 
 %%====================================================================
 %% Grouping helpers (local)
