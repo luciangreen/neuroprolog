@@ -26,8 +26,8 @@
 %
 %   npl_gauss_eliminate/2 performs exact row reduction (Gaussian
 %   elimination) on a matrix of rational numbers represented as
-%   frac(Numerator, Denominator) terms.  The result is the row echelon
-%   form of the input matrix.  This is used to analyse systems of mutually
+%   frac(Numerator, Denominator) terms.  The result is the reduced row
+%   echelon form (RREF) of the input matrix.  This is used to analyse systems of mutually
 %   recursive linear recurrences and determine whether they can be reduced
 %   to a simpler representation.
 %
@@ -100,9 +100,10 @@ npl_is_reducible(Group, linear_tail_recursion) :-
     length(Group, 2),
     Group = [Base, Step],
     Base  = ir_clause(BaseHead, ir_true, _),
-    Step  = ir_clause(StepHead, ir_seq(_, ir_call(RecCall)), _),
+    Step  = ir_clause(StepHead, StepBody, _),
     functor(BaseHead, F, A),
     functor(StepHead, F, A),
+    npl_ir_body_ends_with_rec_call(StepBody, RecCall),
     functor(RecCall,  F, A).
 
 %  Pattern = linear_accumulate(Op, Id)
@@ -249,40 +250,75 @@ npl_accumulator_rewrite([Base, Step], [WrapClause, AccBase, AccStep]) :-
 %% for systems of mutual linear recurrences.
 
 %% npl_gauss_eliminate/2
-%  npl_gauss_eliminate(+Matrix, -RowEchelon)
-%  Apply Gaussian (row) elimination to produce row echelon form.
+%  npl_gauss_eliminate(+Matrix, -RREF)
+%  Apply Gaussian (row) elimination to produce reduced row echelon form.
 %  Matrix is a list of rows; each row is a list of frac/2 terms.
 npl_gauss_eliminate([], []) :- !.
-npl_gauss_eliminate([Row|Rows], Echelon) :-
-    % Find the leftmost column with a non-zero entry in this or a later row
-    ( npl_find_pivot_row([Row|Rows], PivotRow, BelowPivot) ->
-        npl_frac_zero(Zero),
-        PivotRow = [Pivot|_],
-        ( npl_frac_eq(Pivot, Zero) ->
-            % All entries in the first column are zero; skip this column
-            maplist(npl_row_tail, [Row|Rows], TailRows),
-            npl_gauss_eliminate(TailRows, SubEchelon),
-            maplist(npl_row_cons(Zero), SubEchelon, Echelon)
-        ;
-            % Normalise pivot row so leading entry is 1
-            npl_row_scale(PivotRow, Pivot, NormRow),
-            % Eliminate pivot column entries from all rows below
-            maplist(npl_eliminate_entry(NormRow), BelowPivot, Eliminated),
-            npl_gauss_eliminate(Eliminated, SubEchelon),
-            Echelon = [NormRow|SubEchelon]
-        )
+npl_gauss_eliminate(Matrix, RREF) :-
+    length(Matrix, NRows),
+    Matrix = [FirstRow|_],
+    length(FirstRow, NCols),
+    npl_gauss_rref(Matrix, NRows, NCols, 1, 1, RREF).
+
+npl_gauss_rref(Rows, NRows, _NCols, PivotRow, _Col, Rows) :-
+    PivotRow > NRows, !.
+npl_gauss_rref(Rows, _NRows, NCols, _PivotRow, Col, Rows) :-
+    Col > NCols, !.
+npl_gauss_rref(Rows, NRows, NCols, PivotRow, Col, RREF) :-
+    ( npl_find_pivot_row_index(Rows, PivotRow, Col, PivotIdx) ->
+        npl_swap_rows(Rows, PivotRow, PivotIdx, Swapped),
+        nth1(PivotRow, Swapped, RawPivotRow),
+        nth1(Col, RawPivotRow, PivotVal),
+        npl_row_scale(RawPivotRow, PivotVal, NormPivotRow),
+        npl_set_row(Swapped, PivotRow, NormPivotRow, WithNormPivot),
+        npl_eliminate_column_except(WithNormPivot, PivotRow, Col, NormPivotRow, Eliminated),
+        NextPivotRow is PivotRow + 1,
+        NextCol is Col + 1,
+        npl_gauss_rref(Eliminated, NRows, NCols, NextPivotRow, NextCol, RREF)
     ;
-        % All rows are zero rows
-        Echelon = [Row|Rows]
+        NextCol is Col + 1,
+        npl_gauss_rref(Rows, NRows, NCols, PivotRow, NextCol, RREF)
     ).
 
-%% npl_find_pivot_row/3
-%  Find the first row with a non-zero leading entry; swap it to the top.
-npl_find_pivot_row([Row|Rest], Row, Rest) :-
-    Row = [First|_],
-    \+ npl_frac_zero_val(First), !.
-npl_find_pivot_row([ZeroLeader|Rest], Pivot, [ZeroLeader|BelowPivot]) :-
-    npl_find_pivot_row(Rest, Pivot, BelowPivot).
+npl_find_pivot_row_index(Rows, StartRow, Col, PivotIdx) :-
+    nth1(PivotIdx, Rows, Row),
+    PivotIdx >= StartRow,
+    nth1(Col, Row, Entry),
+    \+ npl_frac_zero_val(Entry), !.
+
+npl_swap_rows(Rows, I, I, Rows) :- !.
+npl_swap_rows(Rows, I, J, Swapped) :-
+    nth1(I, Rows, RowI),
+    nth1(J, Rows, RowJ),
+    npl_set_row(Rows, I, RowJ, Tmp),
+    npl_set_row(Tmp, J, RowI, Swapped).
+
+npl_set_row([_|Rows], 1, NewRow, [NewRow|Rows]) :- !.
+npl_set_row([Row|Rows], Index, NewRow, [Row|Out]) :-
+    Index > 1,
+    I1 is Index - 1,
+    npl_set_row(Rows, I1, NewRow, Out).
+
+npl_eliminate_column_except([], _, _, _, []).
+npl_eliminate_column_except([Row|Rows], PivotIdx, Col, PivotRow, [OutRow|OutRows]) :-
+    ( PivotIdx =:= 1 ->
+        OutRow = Row
+    ;
+        nth1(Col, Row, Factor),
+        ( npl_frac_zero_val(Factor) ->
+            OutRow = Row
+        ;
+            npl_row_sub_scaled(Row, PivotRow, Factor, OutRow)
+        )
+    ),
+    PivotIdx1 is PivotIdx - 1,
+    npl_eliminate_column_except(Rows, PivotIdx1, Col, PivotRow, OutRows).
+
+npl_row_sub_scaled(Row, PivotRow, Factor, OutRow) :-
+    maplist(npl_frac_mul(Factor), PivotRow, ScaledPivot),
+    maplist(npl_frac_sub_pair, Row, ScaledPivot, OutRow).
+
+npl_frac_sub_pair(A, B, R) :- npl_frac_sub(A, B, R).
 
 npl_frac_zero_val(frac(0, _)) :- !.
 
@@ -397,6 +433,12 @@ npl_ir_body_find_is(ir_seq(Left, _Right), Var, Expr) :-
     npl_ir_body_find_is(Left, Var, Expr), !.
 npl_ir_body_find_is(ir_seq(_Left, Right), Var, Expr) :-
     npl_ir_body_find_is(Right, Var, Expr), !.
+
+%% npl_ir_body_ends_with_rec_call/2
+%  Succeeds when an IR body terminates in an ir_call(Goal) node.
+npl_ir_body_ends_with_rec_call(ir_call(Goal), Goal) :- !.
+npl_ir_body_ends_with_rec_call(ir_seq(_, Right), Goal) :-
+    npl_ir_body_ends_with_rec_call(Right, Goal), !.
 
 %% npl_ir_last_arg/2
 %  Get the last argument of a compound term.

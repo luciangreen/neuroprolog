@@ -51,8 +51,13 @@ npl_transform_ir([Node|Nodes], Pattern, Replacement, [OptNode|OptNodes]) :-
 
 npl_rewrite_term(Term, Pattern, Replacement, Result) :-
     copy_term(Pattern-Replacement, P-R),
-    Term = P, !,
+    term_variables(Term, TermVars),
+    unifiable(P, Term, Unifier),
+    \+ npl_unifier_binds_term_var(Unifier, TermVars),
+    npl_apply_unifier(Unifier), !,
     Result = R.
+npl_rewrite_term(Term, _, _, Term) :-
+    var(Term), !.
 npl_rewrite_term(ir_clause(Head, Body, Info), Pattern, Replacement,
                  ir_clause(Head, Body1, Info)) :- !,
     npl_rewrite_term(Body, Pattern, Replacement, Body1).
@@ -87,6 +92,23 @@ npl_rewrite_term(Term, _, _, Term).
 
 npl_rewrite_term_alt(Pattern, Replacement, Alt, Alt1) :-
     npl_rewrite_term(Alt, Pattern, Replacement, Alt1).
+
+npl_unifier_binds_term_var([Var=_|_], TermVars) :-
+    npl_var_memberchk(Var, TermVars), !.
+npl_unifier_binds_term_var([_|Rest], TermVars) :-
+    npl_unifier_binds_term_var(Rest, TermVars).
+npl_unifier_binds_term_var([], _) :-
+    fail.
+
+npl_apply_unifier([]).
+npl_apply_unifier([Var=Value|Rest]) :-
+    Var = Value,
+    npl_apply_unifier(Rest).
+
+npl_var_memberchk(Var, [H|_]) :-
+    Var == H, !.
+npl_var_memberchk(Var, [_|T]) :-
+    npl_var_memberchk(Var, T).
 
 %% npl_unfold_data/2
 %  Data unfolding: replace static compound terms with their unfolded form.

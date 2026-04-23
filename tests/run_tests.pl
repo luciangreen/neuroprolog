@@ -104,6 +104,8 @@ run_test_suite :-
     test(optimiser_identity),
     test(optimiser_seq_true),
     test(optimiser_fail_branch),
+    test(optimiser_algebraic_keeps_symbolic_var),
+    test(optimiser_mul_zero_reduces_to_is_zero),
     test(subterm_at),
     test(subterm_set),
     test(control_if),
@@ -233,6 +235,7 @@ run_test_suite :-
     test(ir8_full_pipeline),
     % --- Stage 9: Gaussian-Recursion Reduction ---
     test(gauss9_reducible_tail),
+    test(gauss9_reducible_tail_nested_seq),
     test(gauss9_reducible_accum_add),
     test(gauss9_reducible_accum_mul),
     test(gauss9_nonreducible),
@@ -242,6 +245,7 @@ run_test_suite :-
     test(gauss9_gauss_eliminate_identity),
     test(gauss9_gauss_eliminate_rank1),
     test(gauss9_gauss_eliminate_triangular),
+    test(gauss9_gauss_eliminate_rref_augmented),
     test(gauss9_build_coeff_matrix),
     test(gauss9_reduce_clause_group_sum),
     test(gauss9_reduce_clause_group_tail_unchanged),
@@ -498,6 +502,16 @@ run_test(optimiser_seq_true) :-
 run_test(optimiser_fail_branch) :-
     npl_optimise([ir_clause(test, ir_disj(ir_fail, ir_call(ok)), info(head:ok,body:ok))], Opt),
     Opt = [ir_clause(test, ir_call(ok), _)].
+
+run_test(optimiser_algebraic_keeps_symbolic_var) :-
+    IR = [ir_clause(p(X, Y), ir_call(is(Y, X+0)), info([]))],
+    npl_optimise(IR, Opt),
+    Opt = [ir_clause(p(X, Y), ir_call(is(Y, X)), _)].
+
+run_test(optimiser_mul_zero_reduces_to_is_zero) :-
+    IR = [ir_clause(p(X, Y), ir_call(is(Y, X*0)), info([]))],
+    npl_optimise(IR, Opt),
+    Opt = [ir_clause(p(_, Y), ir_call(is(Y, 0)), _)].
 
 run_test(subterm_at) :-
     npl_subterm_at(f(a, g(b, c)), [2, 1], b).
@@ -1850,6 +1864,18 @@ run_test(gauss9_reducible_tail) :-
     ],
     npl_is_reducible(Group, linear_tail_recursion).
 
+%% gauss9_reducible_tail_nested_seq — nested sequence tail recursion is recognised
+run_test(gauss9_reducible_tail_nested_seq) :-
+    Group = [
+        ir_clause(count(0), ir_true, []),
+        ir_clause(count(N),
+                  ir_seq(ir_call(gt(N,0)),
+                         ir_seq(ir_call(is(N1,N-1)),
+                                ir_call(count(N1)))),
+                  [])
+    ],
+    npl_is_reducible(Group, linear_tail_recursion).
+
 %% gauss9_reducible_accum_add — additive linear accumulate group is recognised
 run_test(gauss9_reducible_accum_add) :-
     Group = [
@@ -1933,9 +1959,18 @@ run_test(gauss9_gauss_eliminate_triangular) :-
     M = [ [frac(2,1), frac(4,1)],
           [frac(1,1), frac(3,1)] ],
     npl_gauss_eliminate(M, E),
-    % After eliminating: row 2 becomes [0, 1] (or equivalent)
-    E = [ [frac(1,1), frac(2,1)],
+    E = [ [frac(1,1), frac(0,1)],
           [frac(0,1), frac(1,1)] ].
+
+%% gauss9_gauss_eliminate_rref_augmented — augmented system reduces to RREF
+run_test(gauss9_gauss_eliminate_rref_augmented) :-
+    M = [ [frac(1,1), frac(1,1), frac(1,1), frac(1,1)],
+          [frac(4,1), frac(2,1), frac(1,1), frac(3,1)],
+          [frac(9,1), frac(3,1), frac(1,1), frac(6,1)] ],
+    npl_gauss_eliminate(M, E),
+    E = [ [frac(1,1), frac(0,1), frac(0,1), frac(1,2)],
+          [frac(0,1), frac(1,1), frac(0,1), frac(1,2)],
+          [frac(0,1), frac(0,1), frac(1,1), frac(0,1)] ].
 
 %% ----------------------------------------------------------------
 %% npl_build_coefficient_matrix/2
