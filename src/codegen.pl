@@ -3,6 +3,22 @@
 % Translates optimised IR into neurocode (valid Prolog).
 % Neurocode is inspectable, editable, and diffable in Git.
 %
+% == Stage 7 additions ==
+%
+%   npl_cg_validate_ir_list_/2
+%     Validates that the IR argument to public predicates is a proper list
+%     of ir_clause/3 terms.  Throws structured errors:
+%       instantiation_error         — IR is unbound
+%       type_error(list, IR)        — IR is not a list
+%       domain_error(npl_ir_clause, E) — list element is not ir_clause/3
+%       domain_error(npl_ir_body, B)   — body contains an unsupported node
+%
+%   npl_ir_to_body/2 catch-all
+%     A final clause throws domain_error(npl_ir_body_node, Node) for any
+%     IR body node not handled by the preceding clauses.  This prevents
+%     raw Prolog failures from escaping when unknown nodes reach the
+%     body translator directly.
+%
 % == Stage 16 additions ==
 %
 %   npl_generate_full/3
@@ -93,6 +109,7 @@ npl_ir_to_source(IR, Clauses) :-
 %    include_comments(true|false)   % accepted for API consistency
 %    source_file(File)
 npl_ir_to_source(IR, Options, Clauses) :-
+    npl_cg_validate_ir_list_(IR, npl_ir_to_source/3),
     npl_cg_parse_codegen_options_(Options, Mode, _IncludeComments, SrcFile),
     npl_cg_ir_to_source_mode_(Mode, IR, SrcFile, Clauses).
 
@@ -109,6 +126,7 @@ npl_ir_to_source_text(IR, Text) :-
 %% npl_ir_to_source_text/3
 %  Option-aware IR->readable Prolog text generation.
 npl_ir_to_source_text(IR, Options, Text) :-
+    npl_cg_validate_ir_list_(IR, npl_ir_to_source_text/3),
     npl_cg_parse_codegen_options_(Options, Mode, IncludeComments, SrcFile),
     ( Mode = emitting,
       IncludeComments == true ->
@@ -471,6 +489,36 @@ npl_ir_to_body(ir_choice_point([Alt]), Body) :- !,
 npl_ir_to_body(ir_choice_point([Alt|Alts]), (BodyA ; BodyB)) :- !,
     npl_ir_to_body(Alt, BodyA),
     npl_ir_to_body(ir_choice_point(Alts), BodyB).
+%% Stage 7 catch-all — throw a structured error for unsupported IR body nodes.
+%  This prevents raw Prolog failures from escaping public predicates when an
+%  unknown or malformed node reaches the body translator directly.
+npl_ir_to_body(Node, _) :-
+    throw(error(domain_error(npl_ir_body_node, Node),
+                context(npl_ir_to_body/2,
+                        'Unsupported IR body node in simple mode'))).
+
+%% npl_cg_validate_ir_list_/2
+%  Validate that IR is a proper list of ir_clause/3 terms.
+%  Throws structured errors for invalid input:
+%    instantiation_error         — if IR is unbound
+%    type_error(list, IR)        — if IR is not a list
+%    domain_error(npl_ir_clause, E) — if a list element is not ir_clause/3
+%    domain_error(npl_ir_body, B)   — if a clause body contains an unsupported node
+npl_cg_validate_ir_list_(IR, Context) :-
+    ( var(IR) ->
+        throw(error(instantiation_error,
+                    context(Context, 'IR must be instantiated')))
+    ; \+ is_list(IR) ->
+        throw(error(type_error(list, IR),
+                    context(Context, 'IR must be a list of ir_clause/3 terms')))
+    ;
+        npl_cg_validate_ir_list_elements_(IR, Context)
+    ).
+
+npl_cg_validate_ir_list_elements_([], _).
+npl_cg_validate_ir_list_elements_([H|T], Context) :-
+    npl_cg_validate_ir_clause_(H, Context),
+    npl_cg_validate_ir_list_elements_(T, Context).
 
 %% npl_cg_validate_ir_clause_/2
 npl_cg_validate_ir_clause_(IRClause, Context) :-
@@ -907,6 +955,7 @@ npl_cg_term_vars_list([H|T], Dict0, [H1|T1], Dict) :-
 %  context as header comments before each clause comment block.
 %  Text is an atom containing valid, consultable Prolog source.
 npl_ir_to_annotated_source_text(IR, Context, Text) :-
+    npl_cg_validate_ir_list_(IR, npl_ir_to_annotated_source_text/3),
     npl_cg_parse_annotated_context_(Context, SrcFile, SrcMeta, OptReport, LineInfo),
     npl_generate_full(IR, SrcFile, Segments),
     with_output_to(atom(Text),
