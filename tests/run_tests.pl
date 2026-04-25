@@ -175,6 +175,23 @@ run_test_suite :-
     test(api3_stage7_text_ir_unbound),
     test(api3_stage7_text_ir_not_list),
     test(api3_stage7_annotated_ir_not_list),
+    % --- PR3 Stage 8: Tests ---
+    test(api3_stage8_unit_fact),
+    test(api3_stage8_unit_plain_goal),
+    test(api3_stage8_unit_conjunction),
+    test(api3_stage8_unit_disjunction),
+    test(api3_stage8_unit_if_then_else),
+    test(api3_stage8_unit_arithmetic_is),
+    test(api3_stage8_unit_fail),
+    test(api3_stage8_unit_negation),
+    test(api3_stage8_unit_cut),
+    test(api3_stage8_api_ir_to_source),
+    test(api3_stage8_api_ir_to_source_text),
+    test(api3_stage8_api_ir_to_source_file),
+    test(api3_stage8_api_code_generate),
+    test(api3_stage8_roundtrip_behaviour),
+    test(api3_stage8_regression_optimise_codegen),
+    test(api3_stage8_file_output_loadable),
     test(api3_stage10_diff_text),
     test(api3_stage10_side_by_side_text),
     test(api3_stage10_predicate_headers_and_stable_vars),
@@ -1051,6 +1068,132 @@ run_test(api3_stage7_annotated_ir_not_list) :-
         error(type_error(list, bad_ir), _),
         true
     ).
+
+%% --- PR3 Stage 8: Tests ---
+
+%% api3_stage8_unit_fact — IR clause with ir_true body generates a bare Prolog fact
+run_test(api3_stage8_unit_fact) :-
+    IRClause = ir_clause(s8_fact, ir_true, info([])),
+    npl_ir_to_clause_public(IRClause, Clause),
+    Clause = s8_fact.
+
+%% api3_stage8_unit_plain_goal — IR clause with single ir_call body → (Head :- Goal)
+run_test(api3_stage8_unit_plain_goal) :-
+    IRClause = ir_clause(s8_plain, ir_call(s8_dep), info([])),
+    npl_ir_to_clause_public(IRClause, Clause),
+    Clause = (s8_plain :- s8_dep).
+
+%% api3_stage8_unit_conjunction — ir_seq/2 body → comma conjunction
+run_test(api3_stage8_unit_conjunction) :-
+    IRBody = ir_seq(ir_call(s8_ca), ir_call(s8_cb)),
+    npl_ir_to_body_public(IRBody, Body),
+    Body = (s8_ca, s8_cb).
+
+%% api3_stage8_unit_disjunction — ir_disj/2 body → semicolon disjunction
+run_test(api3_stage8_unit_disjunction) :-
+    IRBody = ir_disj(ir_call(s8_da), ir_call(s8_db)),
+    npl_ir_to_body_public(IRBody, Body),
+    Body = (s8_da ; s8_db).
+
+%% api3_stage8_unit_if_then_else — ir_if/3 body → (Cond -> Then ; Else)
+run_test(api3_stage8_unit_if_then_else) :-
+    IRBody = ir_if(ir_call(s8_cond), ir_call(s8_then), ir_call(s8_else)),
+    npl_ir_to_body_public(IRBody, Body),
+    Body = (s8_cond -> s8_then ; s8_else).
+
+%% api3_stage8_unit_arithmetic_is — IR clause with arithmetic call → Y is X in body
+run_test(api3_stage8_unit_arithmetic_is) :-
+    IRClause = ir_clause(p(var('X'), var('Y')), ir_call(is(var('Y'), var('X'))), info([])),
+    npl_ir_to_clause_public(IRClause, Clause),
+    Clause = (p(A, B) :- B is A),
+    var(A), var(B).
+
+%% api3_stage8_unit_fail — ir_fail body → fail
+run_test(api3_stage8_unit_fail) :-
+    IRBody = ir_fail,
+    npl_ir_to_body_public(IRBody, Body),
+    Body = fail.
+
+%% api3_stage8_unit_negation — ir_not/1 body → \+(Goal)
+run_test(api3_stage8_unit_negation) :-
+    IRBody = ir_not(ir_call(s8_neg_target)),
+    npl_ir_to_body_public(IRBody, Body),
+    Body = \+(s8_neg_target).
+
+%% api3_stage8_unit_cut — ir_cut body → !
+run_test(api3_stage8_unit_cut) :-
+    IRBody = ir_cut,
+    npl_ir_to_body_public(IRBody, Body),
+    Body = !.
+
+%% api3_stage8_api_ir_to_source — npl_ir_to_source/2 converts IR list to clause list
+run_test(api3_stage8_api_ir_to_source) :-
+    IR = [ir_clause(s8_api_a, ir_true, info([]))],
+    npl_ir_to_source(IR, Clauses),
+    Clauses = [s8_api_a].
+
+%% api3_stage8_api_ir_to_source_text — npl_ir_to_source_text/2 returns readable atom
+run_test(api3_stage8_api_ir_to_source_text) :-
+    IR = [ir_clause(s8_api_b, ir_call(s8_api_dep), info([]))],
+    npl_ir_to_source_text(IR, Text),
+    atom(Text),
+    sub_atom(Text, _, _, _, 's8_api_b').
+
+%% api3_stage8_api_ir_to_source_file — npl_ir_to_source_file/2 writes consultable file
+run_test(api3_stage8_api_ir_to_source_file) :-
+    IR = [ir_clause(s8_api_file_pred, ir_true, info([]))],
+    setup_call_cleanup(
+        tmp_file(npl_stage8_api_file_test, Path),
+        ( npl_ir_to_source_file(IR, Path),
+          consult(Path),
+          current_predicate(s8_api_file_pred/0),
+          s8_api_file_pred ),
+        delete_file(Path)).
+
+%% api3_stage8_api_code_generate — npl_code_generate/2 is a working alias
+run_test(api3_stage8_api_code_generate) :-
+    IR = [ir_clause(s8_code_gen(42), ir_true, info([]))],
+    npl_code_generate(IR, Clauses),
+    Clauses = [s8_code_gen(42)].
+
+%% api3_stage8_roundtrip_behaviour — parse source, optimise, regenerate, consult, verify
+run_test(api3_stage8_roundtrip_behaviour) :-
+    setup_call_cleanup(
+        tmp_file(npl_stage8_rt_in_test, InPath),
+        setup_call_cleanup(
+            tmp_file(npl_stage8_rt_out_test, OutPath),
+            ( setup_call_cleanup(
+                  open(InPath, write, S),
+                  write(S, 's8_rt_greeting(world).\n'),
+                  close(S)),
+              npl_roundtrip_source_file(InPath, OutPath),
+              consult(OutPath),
+              current_predicate(s8_rt_greeting/1),
+              s8_rt_greeting(world) ),
+            delete_file(OutPath)),
+        delete_file(InPath)).
+
+%% api3_stage8_regression_optimise_codegen — regression test from pr3.md:
+%%   IR with Y is X+0 should optimise to Y is X and regenerate as (p(X,Y) :- Y is X).
+run_test(api3_stage8_regression_optimise_codegen) :-
+    IR = [ir_clause(p(X, Y), ir_call(is(Y, X+0)), info([]))],
+    npl_optimise(IR, OptIR),
+    npl_code_generate(OptIR, Clauses),
+    Clauses = [(p(X, Y) :- Y is X)].
+
+%% api3_stage8_file_output_loadable — file written by npl_ir_to_source_file/2 is loadable
+run_test(api3_stage8_file_output_loadable) :-
+    IR = [ir_clause(s8_load_fact, ir_true, info([])),
+          ir_clause(s8_load_rule, ir_call(s8_load_fact), info([]))],
+    setup_call_cleanup(
+        tmp_file(npl_stage8_loadable_test, Path),
+        ( npl_ir_to_source_file(IR, Path),
+          consult(Path),
+          current_predicate(s8_load_fact/0),
+          current_predicate(s8_load_rule/0),
+          s8_load_fact,
+          s8_load_rule ),
+        delete_file(Path)).
 
 %% --- PR3 Stage 10: Optional future improvements ---
 
