@@ -930,16 +930,19 @@ npl_ir_to_annotated_source_file(IR, Context, OutFile) :-
 %% npl_cg_parse_annotated_context_/5
 %  Extract recognised keys from the Context list.
 %  Unrecognised keys are silently ignored for forward compatibility.
+%  If source_file/1 is present but its value is neither an atom nor a string,
+%  SrcFile defaults to '' (no source file) — this is a deliberate lenient
+%  fallback so that forward-compatible context terms do not abort generation.
 npl_cg_parse_annotated_context_(Context, SrcFile, SrcMeta, OptReport, LineInfo) :-
     ( var(Context) ->
         throw(error(instantiation_error,
-                    context(npl_ir_to_annotated_source_text/3,
+                    context(npl_ir_to_annotated_source/3,
                             'Context must be instantiated')))
     ; is_list(Context) ->
         true
     ;
         throw(error(type_error(list, Context),
-                    context(npl_ir_to_annotated_source_text/3,
+                    context(npl_ir_to_annotated_source/3,
                             'Context must be a list')))
     ),
     ( member(source_file(SF), Context), ( atom(SF) ; string(SF) ) ->
