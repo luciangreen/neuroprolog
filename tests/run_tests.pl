@@ -160,6 +160,14 @@ run_test_suite :-
     test(api3_stage5_ir_to_source_text_emitting_comments),
     test(api3_stage5_ir_to_source_text_emitting_no_comments),
     test(api3_stage5_ir_to_source_file_emitting),
+    test(api3_stage6_annotated_text_basic),
+    test(api3_stage6_annotated_text_source_file),
+    test(api3_stage6_annotated_text_opt_report),
+    test(api3_stage6_annotated_text_source_meta),
+    test(api3_stage6_annotated_text_line_info),
+    test(api3_stage6_annotated_text_clause_comments),
+    test(api3_stage6_annotated_file),
+    test(api3_stage6_annotated_empty_context),
     test(api3_stage10_diff_text),
     test(api3_stage10_side_by_side_text),
     test(api3_stage10_predicate_headers_and_stable_vars),
@@ -884,6 +892,88 @@ run_test(api3_stage5_ir_to_source_file_emitting) :-
           consult(Path),
           current_predicate(file_emitting/1) ),
         delete_file(Path)).
+
+%% --- PR3 Stage 6: Annotated source regeneration ---
+
+%% api3_stage6_annotated_text_basic — produces an atom of source text
+run_test(api3_stage6_annotated_text_basic) :-
+    IR = [ir_clause(basic_annot_test, ir_call(my_goal), info([]))],
+    npl_ir_to_annotated_source_text(IR, [], Text),
+    atom(Text),
+    sub_atom(Text, _, _, _, '%% Annotated NeuroProlog Source').
+
+%% api3_stage6_annotated_text_source_file — source file appears in header
+run_test(api3_stage6_annotated_text_source_file) :-
+    IR = [ir_clause(src_file_annot_test, ir_true, info([]))],
+    npl_ir_to_annotated_source_text(IR, [source_file('my_source.pl')], Text),
+    atom(Text),
+    sub_atom(Text, _, _, _, 'source file'),
+    sub_atom(Text, _, _, _, 'my_source.pl').
+
+%% api3_stage6_annotated_text_opt_report — opt report entries appear in header
+run_test(api3_stage6_annotated_text_opt_report) :-
+    IR = [ir_clause(opt_report_test, ir_true, info([]))],
+    npl_ir_to_annotated_source_text(
+        IR,
+        [opt_report([gaussian_pass, memoisation_pass])],
+        Text),
+    atom(Text),
+    sub_atom(Text, _, _, _, 'optimisations applied'),
+    sub_atom(Text, _, _, _, 'gaussian_pass'),
+    sub_atom(Text, _, _, _, 'memoisation_pass').
+
+%% api3_stage6_annotated_text_source_meta — source metadata appears in header
+run_test(api3_stage6_annotated_text_source_meta) :-
+    IR = [ir_clause(meta_annot_test, ir_true, info([]))],
+    npl_ir_to_annotated_source_text(
+        IR,
+        [source_meta(module(my_module, v1))],
+        Text),
+    atom(Text),
+    sub_atom(Text, _, _, _, 'source meta'),
+    sub_atom(Text, _, _, _, 'my_module').
+
+%% api3_stage6_annotated_text_line_info — line info appears in header
+run_test(api3_stage6_annotated_text_line_info) :-
+    IR = [ir_clause(line_info_test, ir_true, info([]))],
+    npl_ir_to_annotated_source_text(
+        IR,
+        [line_info(line(42))],
+        Text),
+    atom(Text),
+    sub_atom(Text, _, _, _, 'line info'),
+    sub_atom(Text, _, _, _, 'line(42)').
+
+%% api3_stage6_annotated_text_clause_comments — per-clause comments included
+run_test(api3_stage6_annotated_text_clause_comments) :-
+    IR = [ir_clause(clause_comment_pred,
+                    ir_call(do_work),
+                    [recursion_class:tail, memo_site:true])],
+    npl_ir_to_annotated_source_text(IR, [], Text),
+    atom(Text),
+    sub_atom(Text, _, _, _, 'clause_comment_pred').
+
+%% api3_stage6_annotated_file — output file is valid consultable Prolog
+run_test(api3_stage6_annotated_file) :-
+    IR = [ir_clause(annot_file_pred(var('X')), ir_call(work(var('X'))), info([]))],
+    setup_call_cleanup(
+        tmp_file(npl_api3_stage6_annot_file_test, Path),
+        ( npl_ir_to_annotated_source_file(IR, [source_file('test_src.pl')], Path),
+          exists_file(Path),
+          setup_call_cleanup(
+              open(Path, read, Stream),
+              ( read_term(Stream, _Comment, [module(user), syntax_errors(quiet)]) ; true ),
+              close(Stream)),
+          consult(Path),
+          current_predicate(annot_file_pred/1) ),
+        delete_file(Path)).
+
+%% api3_stage6_annotated_empty_context — empty context is accepted
+run_test(api3_stage6_annotated_empty_context) :-
+    IR = [ir_clause(empty_ctx_pred, ir_true, info([]))],
+    npl_ir_to_annotated_source_text(IR, [], Text),
+    atom(Text),
+    sub_atom(Text, _, _, _, 'empty_ctx_pred').
 
 %% --- PR3 Stage 10: Optional future improvements ---
 
