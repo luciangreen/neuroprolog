@@ -56,7 +56,9 @@
                     npl_ir_to_body_emitting/3,
                     npl_write_neurocode_full/3,
                     npl_generate_text/3,
-                    npl_cg_loop_max_depth/1]).
+                    npl_cg_loop_max_depth/1,
+                    npl_ir_to_annotated_source_text/3,
+                    npl_ir_to_annotated_source_file/3]).
 
 :- discontiguous npl_ir_to_body_emitting/3.
 
@@ -883,3 +885,111 @@ npl_cg_term_vars_list([], Dict, [], Dict).
 npl_cg_term_vars_list([H|T], Dict0, [H1|T1], Dict) :-
     npl_cg_term_vars(H, Dict0, H1, Dict1),
     npl_cg_term_vars_list(T, Dict1, T1, Dict).
+
+%%====================================================================
+%% Stage 6: Annotated source regeneration
+%%====================================================================
+%
+%  These predicates generate readable Prolog source text annotated with
+%  context information: source file origin, source metadata, optimisation
+%  pass report, and line info (if available).  They are intended for
+%  debugging and inspection — not for exact comment preservation.
+%
+%  Context is a list of zero or more of:
+%    source_file(File)   — path atom of the original source file
+%    source_meta(Meta)   — arbitrary source metadata term
+%    opt_report(Report)  — list of optimisation pass names/report terms
+%    line_info(Info)     — line information term
+
+%% npl_ir_to_annotated_source_text/3
+%  npl_ir_to_annotated_source_text(+IR, +Context, -Text)
+%  Generate annotated Prolog source text from IR, embedding the supplied
+%  context as header comments before each clause comment block.
+%  Text is an atom containing valid, consultable Prolog source.
+npl_ir_to_annotated_source_text(IR, Context, Text) :-
+    npl_cg_parse_annotated_context_(Context, SrcFile, SrcMeta, OptReport, LineInfo),
+    npl_generate_full(IR, SrcFile, Segments),
+    with_output_to(atom(Text),
+        npl_cg_write_annotated_text_(current_output, Segments,
+                                     SrcFile, SrcMeta, OptReport, LineInfo)).
+
+%% npl_ir_to_annotated_source_file/3
+%  npl_ir_to_annotated_source_file(+IR, +Context, +OutFile)
+%  Write annotated Prolog source to OutFile.
+%  The file is valid Prolog and loadable with consult/1.
+npl_ir_to_annotated_source_file(IR, Context, OutFile) :-
+    npl_ir_to_annotated_source_text(IR, Context, Text),
+    setup_call_cleanup(
+        open(OutFile, write, Stream),
+        write(Stream, Text),
+        close(Stream)).
+
+%%--------------------------------------------------------------------
+%% Context parsing
+
+%% npl_cg_parse_annotated_context_/5
+%  Extract recognised keys from the Context list.
+%  Unrecognised keys are silently ignored for forward compatibility.
+npl_cg_parse_annotated_context_(Context, SrcFile, SrcMeta, OptReport, LineInfo) :-
+    ( var(Context) ->
+        throw(error(instantiation_error,
+                    context(npl_ir_to_annotated_source_text/3,
+                            'Context must be instantiated')))
+    ; is_list(Context) ->
+        true
+    ;
+        throw(error(type_error(list, Context),
+                    context(npl_ir_to_annotated_source_text/3,
+                            'Context must be a list')))
+    ),
+    ( member(source_file(SF), Context), ( atom(SF) ; string(SF) ) ->
+        SrcFile = SF
+    ;
+        SrcFile = ''
+    ),
+    ( member(source_meta(SM), Context) -> SrcMeta = SM ; SrcMeta = none ),
+    ( member(opt_report(OR), Context), is_list(OR) -> OptReport = OR ; OptReport = [] ),
+    ( member(line_info(LI), Context) -> LineInfo = LI ; LineInfo = none ).
+
+%%--------------------------------------------------------------------
+%% Annotated text writing
+
+%% npl_cg_write_annotated_text_/6
+%  Write a file-level annotation header then each segment with its own
+%  per-clause comment (produced by npl_generate_full/3).
+npl_cg_write_annotated_text_(Stream, Segments, SrcFile, SrcMeta, OptReport, LineInfo) :-
+    npl_cg_write_annotated_header_(Stream, SrcFile, SrcMeta, OptReport, LineInfo),
+    maplist(npl_write_segment(Stream), Segments).
+
+%% npl_cg_write_annotated_header_/5
+%  Emit a comment block at the top of the generated file carrying all
+%  available context information.
+npl_cg_write_annotated_header_(Stream, SrcFile, SrcMeta, OptReport, LineInfo) :-
+    format(Stream, '%% Annotated NeuroProlog Source~n', []),
+    ( SrcFile \= '' ->
+        format(Stream, '%%   source file : ~w~n', [SrcFile])
+    ;
+        true
+    ),
+    ( SrcMeta \= none ->
+        format(Stream, '%%   source meta : ~w~n', [SrcMeta])
+    ;
+        true
+    ),
+    ( OptReport \= [] ->
+        format(Stream, '%%   optimisations applied:~n', []),
+        maplist(npl_cg_write_annotated_opt_entry_(Stream), OptReport)
+    ;
+        true
+    ),
+    ( LineInfo \= none ->
+        format(Stream, '%%   line info    : ~w~n', [LineInfo])
+    ;
+        true
+    ),
+    format(Stream, '%%~n~n', []).
+
+%% npl_cg_write_annotated_opt_entry_/2
+%  Write one entry from the optimisation report as a comment line.
+npl_cg_write_annotated_opt_entry_(Stream, Entry) :-
+    format(Stream, '%%     - ~w~n', [Entry]).
