@@ -14,7 +14,7 @@
 %       domain_error(npl_ir_body, B)   — body contains an unsupported node
 %
 %   npl_ir_to_body/2 catch-all
-%     A final clause throws domain_error(npl_ir_body_node, Node) for any
+%     A final clause throws domain_error(npl_ir_body, Node) for any
 %     IR body node not handled by the preceding clauses.  This prevents
 %     raw Prolog failures from escaping when unknown nodes reach the
 %     body translator directly.
@@ -493,7 +493,7 @@ npl_ir_to_body(ir_choice_point([Alt|Alts]), (BodyA ; BodyB)) :- !,
 %  This prevents raw Prolog failures from escaping public predicates when an
 %  unknown or malformed node reaches the body translator directly.
 npl_ir_to_body(Node, _) :-
-    throw(error(domain_error(npl_ir_body_node, Node),
+    throw(error(domain_error(npl_ir_body, Node),
                 context(npl_ir_to_body/2,
                         'Unsupported IR body node in simple mode'))).
 
