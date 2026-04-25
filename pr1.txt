@@ -1,0 +1,97 @@
+PR3 — IR-to-Source Regeneration Pipeline: Feature Implementation Progress
+
+This file tracks the implementation of each stage of the IR-to-source regeneration
+pipeline as described in pr3.md.
+
+Stage 1 — Public API wrappers                   100%
+  Predicates: npl_ir_to_source/2, npl_ir_to_source/3, npl_ir_to_source_text/2,
+              npl_ir_to_source_text/3, npl_ir_to_source_file/2,
+              npl_ir_to_source_file/3, npl_code_generate/2
+  Source: src/codegen.pl
+  Tests: api3_ir_to_source, api3_code_generate_alias, api3_ir_to_source_text,
+         api3_ir_to_source_file
+
+Stage 2 — Clause/body conversion wrappers        100%
+  Predicates: npl_ir_to_clause_public/2, npl_ir_to_body_public/2
+  Source: src/codegen.pl
+  Tests: api3_ir_to_clause_public, api3_ir_to_body_public,
+         api3_ir_to_clause_public_error, api3_ir_to_body_public_error
+
+Stage 3 — Source round-trip helpers              100%
+  Predicates: npl_source_to_ir/2, npl_source_to_optimised_ir/2,
+              npl_roundtrip_source/2, npl_roundtrip_source_text/2,
+              npl_roundtrip_source_file/2
+  Source: src/codegen.pl
+  Tests: api3_source_to_ir, api3_source_to_optimised_ir, api3_roundtrip_source,
+         api3_roundtrip_source_text, api3_roundtrip_source_file
+
+Stage 4 — Formatting and readability             100%
+  Features: facts without :- true, indented conjunctions, predicate group spacing,
+             operator notation for arithmetic and comparisons
+  Source: src/codegen.pl
+  Tests: api3_stage4_conjunction_formatting, api3_stage4_arithmetic_operator_formatting,
+         api3_stage4_predicate_group_spacing
+
+Stage 5 — Rich emitting mode for special IR nodes 100%
+  Predicates: npl_ir_to_source/3, npl_ir_to_source_text/3,
+              npl_ir_to_source_file/3 (with options list)
+  Options: mode(simple|emitting), include_comments(true|false), source_file(File)
+  Special nodes: ir_memo_site, ir_addr_loop, ir_loop_candidate, ir_source_marker
+  Source: src/codegen.pl (npl_ir_to_body_emitting/3, npl_generate_full/3)
+  Tests: api3_stage5_ir_to_source_emitting, api3_stage5_ir_to_source_text_emitting_comments,
+         api3_stage5_ir_to_source_text_emitting_no_comments,
+         api3_stage5_ir_to_source_file_emitting
+
+Stage 6 — Annotated source regeneration          100%
+  Predicates: npl_ir_to_annotated_source_text/3, npl_ir_to_annotated_source_file/3
+  Context options: source_file/1, source_meta/1, opt_report/1, line_info/1
+  Source: src/codegen.pl
+  Tests: api3_stage6_annotated_text_basic, api3_stage6_annotated_text_source_file,
+         api3_stage6_annotated_text_opt_report, api3_stage6_annotated_text_source_meta,
+         api3_stage6_annotated_text_line_info, api3_stage6_annotated_text_clause_comments,
+         api3_stage6_annotated_file, api3_stage6_annotated_empty_context
+
+Stage 7 — Error handling                         100%
+  Features: structured errors for unbound IR, non-list IR, non-ir_clause elements,
+             unsupported body nodes; domain/type errors with context
+  Source: src/codegen.pl (npl_cg_validate_ir_list_/2, npl_cg_validate_ir_clause_/2,
+          npl_cg_validate_ir_body_/2)
+  Tests: api3_stage7_ir_unbound, api3_stage7_ir_not_list,
+         api3_stage7_ir_non_clause_element, api3_stage7_unsupported_body_node_simple,
+         api3_stage7_text_ir_unbound, api3_stage7_text_ir_not_list,
+         api3_stage7_annotated_ir_not_list
+
+Stage 8 — Tests                                  100%
+  Unit tests: facts, plain goals, conjunction, disjunction, if-then-else,
+              arithmetic is, fail, negation, cut
+  Public API tests: npl_ir_to_source/2, npl_ir_to_source_text/2,
+                    npl_ir_to_source_file/2, npl_code_generate/2
+  Round-trip test: parse → analyse → optimise → regenerate → consult → verify
+  Regression test: Y is X+0 optimises to Y is X through code generation
+  File output test: files written by npl_ir_to_source_file/2 are consultable
+  Test file: tests/run_tests.pl
+  Tests: api3_stage8_unit_fact, api3_stage8_unit_plain_goal,
+         api3_stage8_unit_conjunction, api3_stage8_unit_disjunction,
+         api3_stage8_unit_if_then_else, api3_stage8_unit_arithmetic_is,
+         api3_stage8_unit_fail, api3_stage8_unit_negation, api3_stage8_unit_cut,
+         api3_stage8_api_ir_to_source, api3_stage8_api_ir_to_source_text,
+         api3_stage8_api_ir_to_source_file, api3_stage8_api_code_generate,
+         api3_stage8_roundtrip_behaviour, api3_stage8_regression_optimise_codegen,
+         api3_stage8_file_output_loadable
+
+Stage 9 — Documentation                          100%
+  Updates: README.md (IR Round-Trip Inspection section, examples),
+           ARCHITECTURE.md (pipeline description)
+  Docs: describes npl_ir_to_source/2 as preferred public name,
+        npl_code_generate/2 as compatibility alias,
+        npl_generate/2 as existing low-level generator
+
+Stage 10 — Optional future improvements          100%
+  Predicates: npl_roundtrip_source_diff_text/2,
+              npl_roundtrip_source_side_by_side_text/2
+  Features: predicate section headers in generated output, stable variable naming
+  Source: src/codegen.pl
+  Tests: api3_stage10_diff_text, api3_stage10_side_by_side_text,
+         api3_stage10_predicate_headers_and_stable_vars
+
+Overall completion: 100%
