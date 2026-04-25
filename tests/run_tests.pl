@@ -168,6 +168,13 @@ run_test_suite :-
     test(api3_stage6_annotated_text_clause_comments),
     test(api3_stage6_annotated_file),
     test(api3_stage6_annotated_empty_context),
+    test(api3_stage7_ir_unbound),
+    test(api3_stage7_ir_not_list),
+    test(api3_stage7_ir_non_clause_element),
+    test(api3_stage7_unsupported_body_node_simple),
+    test(api3_stage7_text_ir_unbound),
+    test(api3_stage7_text_ir_not_list),
+    test(api3_stage7_annotated_ir_not_list),
     test(api3_stage10_diff_text),
     test(api3_stage10_side_by_side_text),
     test(api3_stage10_predicate_headers_and_stable_vars),
@@ -974,6 +981,76 @@ run_test(api3_stage6_annotated_empty_context) :-
     npl_ir_to_annotated_source_text(IR, [], Text),
     atom(Text),
     sub_atom(Text, _, _, _, 'empty_ctx_pred').
+
+%% --- PR3 Stage 7: Error handling ---
+
+%% api3_stage7_ir_unbound — throws instantiation_error when IR is unbound
+run_test(api3_stage7_ir_unbound) :-
+    catch(
+        ( npl_ir_to_source(_, []),
+          fail ),
+        error(instantiation_error, _),
+        true
+    ).
+
+%% api3_stage7_ir_not_list — throws type_error when IR is not a list
+run_test(api3_stage7_ir_not_list) :-
+    catch(
+        ( npl_ir_to_source(not_a_list, []),
+          fail ),
+        error(type_error(list, not_a_list), _),
+        true
+    ).
+
+%% api3_stage7_ir_non_clause_element — throws domain_error when a list element
+%%   is not an ir_clause/3 term
+run_test(api3_stage7_ir_non_clause_element) :-
+    catch(
+        ( npl_ir_to_source([not_an_ir_clause], []),
+          fail ),
+        error(domain_error(npl_ir_clause, not_an_ir_clause), _),
+        true
+    ).
+
+%% api3_stage7_unsupported_body_node_simple — throws domain_error for an
+%%   unsupported IR body node encountered in simple mode
+run_test(api3_stage7_unsupported_body_node_simple) :-
+    catch(
+        ( npl_ir_to_source([ir_clause(p, ir_unknown_node(foo), info([]))], []),
+          fail ),
+        error(domain_error(npl_ir_body, ir_unknown_node(foo)), _),
+        true
+    ).
+
+%% api3_stage7_text_ir_unbound — npl_ir_to_source_text/2 throws
+%%   instantiation_error when IR is unbound
+run_test(api3_stage7_text_ir_unbound) :-
+    catch(
+        ( npl_ir_to_source_text(_, _),
+          fail ),
+        error(instantiation_error, _),
+        true
+    ).
+
+%% api3_stage7_text_ir_not_list — npl_ir_to_source_text/2 throws
+%%   type_error when IR is not a list
+run_test(api3_stage7_text_ir_not_list) :-
+    catch(
+        ( npl_ir_to_source_text(42, _),
+          fail ),
+        error(type_error(list, 42), _),
+        true
+    ).
+
+%% api3_stage7_annotated_ir_not_list — npl_ir_to_annotated_source_text/3
+%%   throws type_error when IR is not a list
+run_test(api3_stage7_annotated_ir_not_list) :-
+    catch(
+        ( npl_ir_to_annotated_source_text(bad_ir, [], _),
+          fail ),
+        error(type_error(list, bad_ir), _),
+        true
+    ).
 
 %% --- PR3 Stage 10: Optional future improvements ---
 
