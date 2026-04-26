@@ -500,7 +500,7 @@ npl_build_arith('*', Acc, Extra, '*'(Acc, Extra)).
 %  Fails if Samples is empty, has fewer than two elements, or the sequence
 %  appears non-polynomial within the available sample set.
 npl_detect_polynomial_degree(Samples, Degree) :-
-    Samples = [_, _ | _],   % require at least two samples
+    Samples = [_, _ | _],
     npl_samples_ys_(Samples, YValues),
     length(YValues, Len),
     MaxDegree is Len - 1,
@@ -523,7 +523,8 @@ npl_poly_degree_by_diffs_(Ys, Acc, Max, Degree) :-
 
 %% npl_all_same_(+List)
 %  Succeeds when all elements of List are numerically equal.
-%  Requires at least one element; fails on the empty list.
+%  Requires at least one element; fails explicitly on the empty list.
+npl_all_same_([]) :- !, fail.
 npl_all_same_([_]) :- !.
 npl_all_same_([A, B | Rest]) :-
     A =:= B,
