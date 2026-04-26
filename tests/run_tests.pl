@@ -283,6 +283,15 @@ run_test_suite :-
     test(gauss9_reduce_clause_group_tail_unchanged),
     test(gauss9_correctness_sum),
     test(gauss9_correctness_length),
+    % --- PR2 Stage 2: Polynomial coefficient discovery ---
+    test(gauss2_poly_degree_triangular),
+    test(gauss2_poly_degree_linear),
+    test(gauss2_poly_degree_constant),
+    test(gauss2_poly_solve_triangular),
+    test(gauss2_poly_solve_linear),
+    test(gauss2_poly_cubic),
+    test(gauss2_poly_fibonacci_not_polynomial),
+    test(gauss2_poly_reconstruct_and_validate),
     % --- Stage 10: Subterm Address Looping ---
     test(subterm10_addr_bounded_depth0),
     test(subterm10_addr_bounded_depth1),
@@ -2367,6 +2376,87 @@ run_test(gauss9_correctness_length) :-
     npl_interp_query_all(g9_acc_len([a,b,c,d,e],  N), N, [5]),
     npl_interp_query_all(g9_orig_len([], Z),            Z, [0]),
     npl_interp_query_all(g9_acc_len([],  Z),            Z, [0]).
+
+%% =====================================================================
+%% PR2 Stage 2 tests — Polynomial coefficient discovery
+%% =====================================================================
+
+%% gauss2_poly_degree_triangular — finite differences detect degree 2 for
+%% triangular numbers 1,3,6 (i.e. N*(N+1)/2)
+run_test(gauss2_poly_degree_triangular) :-
+    Samples = [(1,1),(2,3),(3,6)],
+    npl_detect_polynomial_degree(Samples, Degree),
+    Degree =:= 2.
+
+%% gauss2_poly_degree_linear — finite differences detect degree 1 for
+%% linear sequence 4,7,10 (i.e. 3*N+1)
+run_test(gauss2_poly_degree_linear) :-
+    Samples = [(1,4),(2,7),(3,10)],
+    npl_detect_polynomial_degree(Samples, Degree),
+    Degree =:= 1.
+
+%% gauss2_poly_degree_constant — a constant sequence has degree 0
+run_test(gauss2_poly_degree_constant) :-
+    Samples = [(1,5),(2,5),(3,5)],
+    npl_detect_polynomial_degree(Samples, Degree),
+    Degree =:= 0.
+
+%% gauss2_poly_solve_triangular — Gaussian elimination recovers coefficients
+%% [a0=0, a1=1/2, a2=1/2] for triangular numbers
+run_test(gauss2_poly_solve_triangular) :-
+    Samples = [(1,1),(2,3),(3,6)],
+    npl_detect_polynomial_degree(Samples, Degree),
+    npl_build_polynomial_system(Samples, Degree, Matrix, Vector),
+    npl_gaussian_elimination(Matrix, Vector, Coefficients),
+    Coefficients = [C0, C1, C2],
+    C0 = frac(0, 1),
+    C1 = frac(1, 2),
+    C2 = frac(1, 2).
+
+%% gauss2_poly_solve_linear — Gaussian elimination recovers coefficients
+%% [a0=1, a1=3] for linear sequence 3*N+1
+run_test(gauss2_poly_solve_linear) :-
+    Samples = [(1,4),(2,7),(3,10)],
+    npl_detect_polynomial_degree(Samples, Degree),
+    npl_build_polynomial_system(Samples, Degree, Matrix, Vector),
+    npl_gaussian_elimination(Matrix, Vector, Coefficients),
+    Coefficients = [C0, C1],
+    C0 = frac(1, 1),
+    C1 = frac(3, 1).
+
+%% gauss2_poly_cubic — degree-3 polynomial N^3+N discovered from four samples
+run_test(gauss2_poly_cubic) :-
+    Samples = [(1,2),(2,10),(3,30),(4,68)],
+    npl_detect_polynomial_degree(Samples, Degree),
+    Degree =:= 3,
+    npl_build_polynomial_system(Samples, Degree, Matrix, Vector),
+    npl_gaussian_elimination(Matrix, Vector, Coefficients),
+    Coefficients = [C0, C1, C2, C3],
+    C0 = frac(0, 1),
+    C1 = frac(1, 1),
+    C2 = frac(0, 1),
+    C3 = frac(1, 1).
+
+%% gauss2_poly_fibonacci_not_polynomial — a polynomial fitted to the first four
+%% Fibonacci values fails to validate against the fifth
+run_test(gauss2_poly_fibonacci_not_polynomial) :-
+    FitSamples      = [(1,1),(2,1),(3,2),(4,3)],
+    ValidateSamples = [(1,1),(2,1),(3,2),(4,3),(5,5)],
+    npl_detect_polynomial_degree(FitSamples, Degree),
+    npl_build_polynomial_system(FitSamples, Degree, Matrix, Vector),
+    npl_gaussian_elimination(Matrix, Vector, Coefficients),
+    npl_reconstruct_polynomial(N, Coefficients, Expr),
+    \+ npl_validate_polynomial_formula(ValidateSamples, Expr, N, true).
+
+%% gauss2_poly_reconstruct_and_validate — full pipeline: detect degree, solve,
+%% reconstruct expression, and validate against all samples
+run_test(gauss2_poly_reconstruct_and_validate) :-
+    Samples = [(1,1),(2,3),(3,6),(4,10),(5,15)],
+    npl_detect_polynomial_degree(Samples, Degree),
+    npl_build_polynomial_system(Samples, Degree, Matrix, Vector),
+    npl_gaussian_elimination(Matrix, Vector, Coefficients),
+    npl_reconstruct_polynomial(N, Coefficients, Expr),
+    npl_validate_polynomial_formula(Samples, Expr, N, true).
 
 %% =====================================================================
 %% Stage 10 tests — Subterm Address Looping
