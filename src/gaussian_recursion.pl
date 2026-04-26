@@ -42,7 +42,12 @@
     npl_reduce_clause_group/2,
     npl_extract_recurrence/2,
     npl_gauss_eliminate/2,
-    npl_build_coefficient_matrix/2
+    npl_build_coefficient_matrix/2,
+    npl_detect_polynomial_degree/2,
+    npl_build_polynomial_system/4,
+    npl_gaussian_elimination/3,
+    npl_reconstruct_polynomial/3,
+    npl_validate_polynomial_formula/4
 ]).
 
 :- use_module(library(lists)).
@@ -466,3 +471,167 @@ npl_op_identity('*', 1).
 %  Build an arithmetic expression  Acc Op Extra.
 npl_build_arith('+', Acc, Extra, '+'(Acc, Extra)).
 npl_build_arith('*', Acc, Extra, '*'(Acc, Extra)).
+
+%%====================================================================
+%% Stage 2: Polynomial coefficient discovery via Gaussian elimination
+%%====================================================================
+%%
+%% These predicates implement the public interface for discovering
+%% polynomial formulas from sample point sets (X,Y pairs) using
+%% Gaussian elimination on a Vandermonde coefficient matrix.
+%%
+%% Workflow:
+%%   1. npl_detect_polynomial_degree/2   — estimate degree by finite differences
+%%   2. npl_build_polynomial_system/4    — construct Vandermonde matrix + RHS
+%%   3. npl_gaussian_elimination/3       — solve the system for coefficients
+%%   4. npl_reconstruct_polynomial/3     — build arithmetic expression from coefficients
+%%   5. npl_validate_polynomial_formula/4 — confirm formula matches all samples
+%%
+%% Arithmetic is performed throughout using exact frac(N,D) rationals.
+%% The reconstructed polynomial expression uses rdiv/2 for non-integer
+%% coefficients so that SWI-Prolog's is/2 can evaluate it exactly.
+
+%% npl_detect_polynomial_degree(+Samples, -Degree)
+%  Detect the polynomial degree of the sample sequence by computing
+%  successive finite differences until a constant sequence is reached.
+%  Samples: non-empty list of (X,Y) integer pairs in ascending X order.
+%  Degree:  the minimum degree K such that K-th order differences are constant.
+%  Fails if the sequence appears non-polynomial within the sample set.
+npl_detect_polynomial_degree(Samples, Degree) :-
+    npl_samples_ys_(Samples, YValues),
+    length(YValues, Len),
+    MaxDegree is Len - 1,
+    npl_poly_degree_by_diffs_(YValues, 0, MaxDegree, Degree).
+
+npl_samples_ys_([], []).
+npl_samples_ys_([(_X, Y) | Rest], [Y | Ys]) :-
+    npl_samples_ys_(Rest, Ys).
+
+npl_poly_degree_by_diffs_(Ys, Acc, Max, Degree) :-
+    ( npl_all_same_(Ys) ->
+        Degree = Acc
+    ; Acc < Max ->
+        npl_finite_differences_(Ys, Diffs),
+        Acc1 is Acc + 1,
+        npl_poly_degree_by_diffs_(Diffs, Acc1, Max, Degree)
+    ;
+        fail
+    ).
+
+%% npl_all_same_(+List)
+%  Succeeds when all elements of List are numerically equal.
+npl_all_same_([]) :- !.
+npl_all_same_([_]) :- !.
+npl_all_same_([A, B | Rest]) :-
+    A =:= B,
+    npl_all_same_([B | Rest]).
+
+%% npl_finite_differences_(+Ys, -Diffs)
+%  Compute the list of first-order finite differences of Ys.
+npl_finite_differences_([_], []) :- !.
+npl_finite_differences_([A, B | Rest], [D | Diffs]) :-
+    D is B - A,
+    npl_finite_differences_([B | Rest], Diffs).
+
+%% npl_build_polynomial_system(+Samples, +Degree, -Matrix, -Vector)
+%  Build the Vandermonde linear system for polynomial coefficient fitting.
+%  Samples: list of (X,Y) integer pairs; at least Degree+1 are required.
+%  Degree:  polynomial degree K.
+%  Matrix:  list of K+1 rows; each row is [X^0, X^1, ..., X^K] as frac/2.
+%  Vector:  list of K+1 Y values as frac/2.
+%  The first Degree+1 samples are used to form a square system.
+npl_build_polynomial_system(Samples, Degree, Matrix, Vector) :-
+    NCols is Degree + 1,
+    length(Samples, NSamples),
+    NSamples >= NCols,
+    length(SystemSamples, NCols),
+    append(SystemSamples, _, Samples),
+    maplist(npl_vandermonde_row_(Degree), SystemSamples, Matrix),
+    maplist(npl_sample_rhs_, SystemSamples, Vector).
+
+npl_vandermonde_row_(Degree, (X, _Y), Row) :-
+    numlist(0, Degree, Powers),
+    maplist(npl_int_pow_frac_(X), Powers, Row).
+
+npl_int_pow_frac_(X, P, frac(V, 1)) :-
+    V is X ^ P.
+
+npl_sample_rhs_((_X, Y), frac(Y, 1)).
+
+%% npl_gaussian_elimination(+Matrix, +Vector, -Coefficients)
+%  Solve the linear system  Matrix * Coefficients = Vector  using
+%  Gaussian elimination.  Matrix and Vector are in frac/2 representation.
+%  Coefficients is the solution list [a0, a1, ..., aK] as frac/2 terms,
+%  corresponding to ascending polynomial powers 0, 1, ..., K.
+npl_gaussian_elimination(Matrix, Vector, Coefficients) :-
+    maplist(npl_augment_row_, Matrix, Vector, Augmented),
+    npl_gauss_eliminate(Augmented, RREF),
+    maplist(npl_rref_solution_, RREF, Coefficients).
+
+npl_augment_row_(Row, RHS, AugRow) :-
+    append(Row, [RHS], AugRow).
+
+npl_rref_solution_(Row, RHS) :-
+    last(Row, RHS).
+
+%% npl_reconstruct_polynomial(+Var, +Coefficients, -Expr)
+%  Build a Prolog arithmetic expression for the polynomial in Var.
+%  Var:          an unbound Prolog variable used as the indeterminate.
+%  Coefficients: [a0, a1, ..., aK] as frac/2 terms (ascending powers).
+%  Expr:         an arithmetic term evaluable by is/2 once Var is bound.
+%  Zero coefficients are omitted; rational coefficients use rdiv/2;
+%  coefficients of 1 are simplified away where possible.
+npl_reconstruct_polynomial(Var, Coefficients, Expr) :-
+    npl_poly_terms_(Var, Coefficients, 0, Terms),
+    npl_sum_terms_(Terms, Expr).
+
+npl_poly_terms_(_Var, [], _Power, []).
+npl_poly_terms_(Var, [Coeff | Rest], Power, Terms) :-
+    Power1 is Power + 1,
+    npl_poly_terms_(Var, Rest, Power1, RestTerms),
+    ( npl_frac_zero_val(Coeff) ->
+        Terms = RestTerms
+    ;
+        npl_poly_single_term_(Var, Power, Coeff, Term),
+        Terms = [Term | RestTerms]
+    ).
+
+npl_poly_single_term_(_Var, 0, Coeff, Term) :- !,
+    npl_frac_to_arith_(Coeff, Term).
+npl_poly_single_term_(Var, 1, frac(1, 1), Var) :- !.
+npl_poly_single_term_(Var, 1, Coeff, CoeffExpr * Var) :- !,
+    npl_frac_to_arith_(Coeff, CoeffExpr).
+npl_poly_single_term_(Var, Power, frac(1, 1), Var ^ Power) :- !.
+npl_poly_single_term_(Var, Power, Coeff, CoeffExpr * Var ^ Power) :-
+    npl_frac_to_arith_(Coeff, CoeffExpr).
+
+%% npl_frac_to_arith_(+Frac, -ArithExpr)
+%  Convert a frac/2 rational to a Prolog arithmetic expression.
+%  Integer-valued fracs become plain integers; others become rdiv/2.
+npl_frac_to_arith_(frac(N, 1), N) :- !.
+npl_frac_to_arith_(frac(N, D), rdiv(N, D)).
+
+%% npl_sum_terms_(+Terms, -Expr)
+%  Combine a list of polynomial terms into a single sum expression.
+npl_sum_terms_([], 0) :- !.
+npl_sum_terms_([T], T) :- !.
+npl_sum_terms_([T | Rest], T + RestExpr) :-
+    npl_sum_terms_(Rest, RestExpr).
+
+%% npl_validate_polynomial_formula(+Samples, +Expr, +Var, -Result)
+%  Validate that Expr evaluates correctly for every sample point.
+%  Samples: list of (X,Y) integer pairs.
+%  Expr:    arithmetic expression in Var (from npl_reconstruct_polynomial/3).
+%  Var:     the Prolog variable appearing in Expr (will be bound per sample).
+%  Result:  the atom 'true' when all samples validate; fails on mismatch.
+%  Each sample is checked by binding a fresh copy of Var to X and
+%  evaluating Expr with is/2, then comparing the result to Y.
+npl_validate_polynomial_formula(Samples, Expr, Var, true) :-
+    maplist(npl_validate_sample_(Expr, Var), Samples).
+
+npl_validate_sample_(Expr, Var, (X, Y)) :-
+    copy_term(Expr-Var, ExprCopy-VarCopy),
+    VarCopy = X,
+    Val is ExprCopy,
+    Val =:= Y.
+
