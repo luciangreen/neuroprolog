@@ -494,10 +494,13 @@ npl_build_arith('*', Acc, Extra, '*'(Acc, Extra)).
 %% npl_detect_polynomial_degree(+Samples, -Degree)
 %  Detect the polynomial degree of the sample sequence by computing
 %  successive finite differences until a constant sequence is reached.
-%  Samples: non-empty list of (X,Y) integer pairs in ascending X order.
+%  Samples: non-empty list of (X,Y) integer pairs in ascending X order;
+%           at least two samples are required for meaningful degree detection.
 %  Degree:  the minimum degree K such that K-th order differences are constant.
-%  Fails if the sequence appears non-polynomial within the sample set.
+%  Fails if Samples is empty, has fewer than two elements, or the sequence
+%  appears non-polynomial within the available sample set.
 npl_detect_polynomial_degree(Samples, Degree) :-
+    Samples = [_, _ | _],   % require at least two samples
     npl_samples_ys_(Samples, YValues),
     length(YValues, Len),
     MaxDegree is Len - 1,
@@ -520,7 +523,7 @@ npl_poly_degree_by_diffs_(Ys, Acc, Max, Degree) :-
 
 %% npl_all_same_(+List)
 %  Succeeds when all elements of List are numerically equal.
-npl_all_same_([]) :- !.
+%  Requires at least one element; fails on the empty list.
 npl_all_same_([_]) :- !.
 npl_all_same_([A, B | Rest]) :-
     A =:= B,
