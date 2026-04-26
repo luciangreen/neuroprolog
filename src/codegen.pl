@@ -3,6 +3,25 @@
 % Translates optimised IR into neurocode (valid Prolog).
 % Neurocode is inspectable, editable, and diffable in Git.
 %
+% == Stage 3 additions ==
+%
+%   npl_source_to_ir/2
+%     Converts a source file to IR via the full pipeline:
+%     npl_lex → npl_parse → npl_analyse → npl_intermediate.
+%
+%   npl_source_to_optimised_ir/2
+%     Extends npl_source_to_ir/2 with a final npl_optimise/2 step.
+%
+%   npl_roundtrip_source/2
+%     Convenience wrapper: source file → optimised IR → clause list.
+%
+%   npl_roundtrip_source_text/2
+%     Convenience wrapper: source file → optimised IR → readable Prolog text.
+%
+%   npl_roundtrip_source_file/2
+%     Convenience wrapper: source file → optimised IR → written output file.
+%     The output file is consultable via consult/1.
+%
 % == Stage 7 additions ==
 %
 %   npl_cg_validate_ir_list_/2
@@ -61,13 +80,13 @@
                     npl_ir_to_clause_public/2,
                     npl_ir_to_body_public/2,
                     npl_source_to_ir/2,
-                     npl_source_to_optimised_ir/2,
-                     npl_roundtrip_source/2,
-                     npl_roundtrip_source_text/2,
-                     npl_roundtrip_source_file/2,
-                     npl_roundtrip_source_diff_text/2,
-                     npl_roundtrip_source_side_by_side_text/2,
-                     npl_ir_to_body/2,
+                    npl_source_to_optimised_ir/2,
+                    npl_roundtrip_source/2,
+                    npl_roundtrip_source_text/2,
+                    npl_roundtrip_source_file/2,
+                    npl_roundtrip_source_diff_text/2,
+                    npl_roundtrip_source_side_by_side_text/2,
+                    npl_ir_to_body/2,
                     npl_generate_full/3,
                     npl_ir_to_body_emitting/3,
                     npl_write_neurocode_full/3,
