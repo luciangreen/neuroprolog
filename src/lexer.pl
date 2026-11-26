@@ -148,7 +148,7 @@ npl_lex_token([0'"|Cs], Token, Rest) :- !,
 
 %% Identifier: atom (lowercase) or variable (uppercase)
 npl_lex_token([C|Cs], Token, Rest) :-
-    char_type(C, alpha), !,
+    npl_letter(C), !,
     ( char_type(C, upper)
     -> npl_lex_id([C|Cs], Codes, Rest),
        atom_codes(A, Codes),
@@ -242,7 +242,11 @@ npl_lex_id_rest([C|Cs], [C|Codes], Rest) :-
     npl_lex_id_rest(Cs, Codes, Rest).
 npl_lex_id_rest(Cs, [], Cs).
 
-npl_id_start(C) :- char_type(C, alpha).
+npl_id_start(C) :- npl_letter(C).
+
+%% A letter: char_type(C, alpha) is also true of digits (and '_') in
+%% SWI-Prolog, which would lex 12 as the atom '12', so digits are excluded.
+npl_letter(C) :- char_type(C, alpha), \+ char_type(C, digit(_)), C \== 0'_.
 npl_id_start(0'_).
 npl_id_cont(C) :- char_type(C, alnum).
 npl_id_cont(0'_).

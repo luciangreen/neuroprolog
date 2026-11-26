@@ -68,6 +68,9 @@ run_test_suite :-
     test(lexer_variables),
     test(lexer_anonymous_var),
     test(lexer_integers),
+    test(lexer_numbers_in_terms),
+    test(lexer_underscore_variable),
+    test(roundtrip_keeps_numbers),
     test(lexer_floats),
     test(lexer_strings),
     test(lexer_operators),
@@ -1487,6 +1490,21 @@ run_test(lexer_anonymous_var) :-
     npl_lex_string('__foo', [var('__foo')]).
 
 %% Integer literals
+run_test(lexer_numbers_in_terms) :-
+    npl_lex_string("f(12, x).", Tokens),
+    Tokens = [atom(f), punct('('), integer(12), punct(','), atom(x), punct(')'), punct('.')].
+
+run_test(lexer_underscore_variable) :-
+    npl_lex_string("_Foo", [var('_Foo')]).
+
+run_test(roundtrip_keeps_numbers) :-
+    tmp_file(np_in, In), atom_concat(In, '.pl', InPl),
+    tmp_file(np_out, Out), atom_concat(Out, '.pl', OutPl),
+    setup_call_cleanup(open(InPl, write, S), format(S, "sum_to(0, 0).~n", []), close(S)),
+    npl_roundtrip_source_file(InPl, OutPl),
+    read_file_to_terms(OutPl, Terms, []),
+    memberchk(sum_to(0, 0), Terms).
+
 run_test(lexer_integers) :-
     npl_lex_string('0', [integer(0)]),
     npl_lex_string('42', [integer(42)]),
