@@ -85,7 +85,19 @@ run_equivalence_suite :-
     % --- End-to-end compilation equivalence ---
     eq_test(e2e_compile_and_exec_fact),
     eq_test(e2e_compile_and_exec_rule),
-    eq_test(e2e_compile_and_exec_arithmetic).
+    eq_test(e2e_compile_and_exec_arithmetic),
+    % --- Recursion rewrites: closed forms and accumulators ---
+    % Each test runs the source and the compiled neurocode on many inputs
+    % and requires the same answers (or the same error) for every input.
+    eq_test(rec_gauss_sum_closed_form),
+    eq_test(rec_gauss_squares_closed_form),
+    eq_test(rec_gauss_multiple_closed_form),
+    eq_test(rec_gauss_constant_closed_form),
+    eq_test(rec_gauss_guard_ge1_closed_form),
+    eq_test(rec_factorial_accumulator),
+    eq_test(rec_list_sum_accumulator),
+    eq_test(rec_list_product_accumulator),
+    eq_test(rec_io_pair_count).
 
 eq_test(Name) :-
     ( catch(run_eq_test(Name), Error,
@@ -461,3 +473,113 @@ foldl(Goal, [H|T], V0, V) :-
     call(Goal, H, V0, V1),
     foldl(Goal, T, V1, V).
 :- endif.
+
+%%====================================================================
+%% Recursion rewrites (Gaussian closed forms and accumulators)
+%%====================================================================
+
+:- dynamic eq_pairs_checked/1.
+
+%% eq_answers(+Goal, +Template, -Answers)
+%  All answers to Goal in the meta-interpreter, or error if it raises one.
+eq_answers(Goal, Template, Answers) :-
+    catch(npl_interp_query_all(Goal, Template, Answers), _, Answers = error).
+
+%% eq_same_on_inputs(+Src, +Goals-Templates, +Check)
+%  Run each query on the interpreted source and on the compiled neurocode.
+%  Every query must give the same list of answers. Check is called on the
+%  neurocode, to show that the expected rewrite really happened.
+eq_same_on_inputs(Src, Queries, Check) :-
+    npl_interp_reset,
+    npl_lex_string(Src, Tok),
+    npl_parse(Tok, AST),
+    npl_analyse(AST, AAST),
+    npl_interp_load(AAST),
+    maplist(eq_query_answers, Queries, SrcAnswers),
+    npl_interp_reset,
+    eq_compile_src(Src, NC),
+    call(Check, NC),
+    npl_interp_load_clauses(NC),
+    maplist(eq_query_answers, Queries, NCAnswers),
+    SrcAnswers == NCAnswers,
+    length(Queries, N),
+    ( retract(eq_pairs_checked(M)) -> true ; M = 0 ),
+    M1 is M + N,
+    assertz(eq_pairs_checked(M1)).
+
+eq_query_answers(Goal-Template, Answers) :-
+    eq_answers(Goal, Template, Answers).
+
+eq_range_queries(Name, Lo, Hi, Queries) :-
+    numlist(Lo, Hi, Ns),
+    maplist(eq_mk_query(Name), Ns, Queries).
+eq_mk_query(Name, N, Goal-S) :- Goal =.. [Name, N, S].
+
+%% Neurocode checks: the rewrite we expect is present.
+eq_has_closed_form(Name, NC) :-
+    member(C, NC), eq_clause_parts(C, H, B),
+    functor(H, Name, 2),
+    sub_term(E, B), compound(E), E = integer(_),
+    \+ ( sub_term(G, B), compound(G), functor(G, Name, 2) ).
+
+eq_has_accumulator(Name, NC) :-
+    atom_concat(Name, '_gauss_acc', Acc),
+    member(C, NC), eq_clause_parts(C, H, _),
+    functor(H, Acc, 3).
+
+eq_clause_parts((H :- B), H, B) :- !.
+eq_clause_parts(H, H, true).
+
+run_eq_test(rec_gauss_sum_closed_form) :-
+    Src = 'sum_to(0, 0). sum_to(N, S) :- N > 0, N1 is N - 1, sum_to(N1, S1), S is S1 + N.',
+    eq_range_queries(sum_to, -3, 50, Q1),
+    Q2 = [sum_to(2.5, S1)-S1, sum_to(10, 55)-yes, sum_to(10, 54)-yes,
+          sum_to(0, 0)-yes, sum_to(1, 1)-yes, sum_to(_, 3)-x],
+    append(Q1, Q2, Qs),
+    eq_same_on_inputs(Src, Qs, eq_has_closed_form(sum_to)).
+
+run_eq_test(rec_gauss_squares_closed_form) :-
+    Src = 'sq(0, 0). sq(N, S) :- N > 0, N1 is N - 1, sq(N1, S1), S is S1 + N*N.',
+    eq_range_queries(sq, -2, 30, Qs),
+    eq_same_on_inputs(Src, Qs, eq_has_closed_form(sq)).
+
+run_eq_test(rec_gauss_multiple_closed_form) :-
+    Src = 'tri3(0, 0). tri3(N, S) :- N > 0, N1 is N - 1, tri3(N1, S1), S is S1 + 3*N.',
+    eq_range_queries(tri3, -1, 25, Qs),
+    eq_same_on_inputs(Src, Qs, eq_has_closed_form(tri3)).
+
+run_eq_test(rec_gauss_constant_closed_form) :-
+    Src = 'five(0, 0). five(N, S) :- N > 0, N1 is N - 1, five(N1, S1), S is S1 + 5.',
+    eq_range_queries(five, -1, 20, Qs),
+    eq_same_on_inputs(Src, Qs, eq_has_closed_form(five)).
+
+run_eq_test(rec_gauss_guard_ge1_closed_form) :-
+    Src = 'g1(0, 0). g1(N, S) :- N >= 1, N1 is N - 1, g1(N1, S1), S is S1 + N.',
+    eq_range_queries(g1, -1, 15, Qs),
+    eq_same_on_inputs(Src, Qs, eq_has_closed_form(g1)).
+
+run_eq_test(rec_factorial_accumulator) :-
+    Src = 'fact(0, 1). fact(N, F) :- N > 0, N1 is N - 1, fact(N1, F1), F is F1 * N.',
+    eq_range_queries(fact, -2, 20, Qs),
+    eq_same_on_inputs(Src, Qs, eq_has_accumulator(fact)).
+
+run_eq_test(rec_list_sum_accumulator) :-
+    Src = 'suml([], 0). suml([H|T], S) :- suml(T, S1), S is S1 + H.',
+    numlist(0, 15, Ns),
+    findall(suml(L, S)-S, (member(N, Ns), numlist(1, N, L0),
+                           maplist(eq_times(N), L0, L)), Qs),
+    eq_same_on_inputs(Src, Qs, eq_has_accumulator(suml)).
+
+run_eq_test(rec_list_product_accumulator) :-
+    Src = 'prodl([], 1). prodl([H|T], P) :- prodl(T, P1), P is P1 * H.',
+    numlist(0, 10, Ns),
+    findall(prodl(L, P)-P, (member(N, Ns), numlist(1, N, L)), Qs),
+    eq_same_on_inputs(Src, Qs, eq_has_accumulator(prodl)).
+
+eq_times(K, X, Y) :- Y is X * K - 3.
+
+%% At least 200 input/output pairs were compared across the tests above.
+run_eq_test(rec_io_pair_count) :-
+    eq_pairs_checked(N),
+    format('  recursion rewrites: ~w input/output pairs compared~n', [N]),
+    N >= 200.

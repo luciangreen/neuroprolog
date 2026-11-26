@@ -283,6 +283,12 @@ run_test_suite :-
     test(gauss9_gauss_eliminate_rref_augmented),
     test(gauss9_build_coeff_matrix),
     test(gauss9_reduce_clause_group_sum),
+    test(gauss10_sum_to_is_gauss_sum),
+    test(gauss10_sum_to_closed_form_clause),
+    test(gauss10_base_one_not_gauss_sum),
+    test(gauss10_accumulate_keeps_guards),
+    test(gauss10_rec_result_in_pre_rejected),
+    test(gauss10_squares_formula),
     test(gauss9_reduce_clause_group_tail_unchanged),
     test(gauss9_correctness_sum),
     test(gauss9_correctness_length),
@@ -4089,3 +4095,92 @@ run_test(sh19_compare_behaviour_list_ops) :-
 run_test(sh19_bench_query_list_nonempty) :-
     self_host:self_host_bench_queries(Qs),
     Qs \= [].
+
+%% ----------------------------------------------------------------
+%% Gaussian closed forms and accumulators with guards (v10)
+%% ----------------------------------------------------------------
+
+gauss10_sum_to_group([
+    ir_clause(sum_to(0, 0), ir_true, []),
+    ir_clause(sum_to(var('N'), var('S')),
+        ir_seq(ir_call(var('N') > 0),
+        ir_seq(ir_call(is(var('N1'), var('N') - 1)),
+        ir_seq(ir_call(sum_to(var('N1'), var('S1'))),
+               ir_call(is(var('S'), var('S1') + var('N')))))),
+        [optimisation_meta:[]])
+]).
+
+%% gauss10_sum_to_is_gauss_sum — the sum 1+...+N is recognised
+run_test(gauss10_sum_to_is_gauss_sum) :-
+    gauss10_sum_to_group(G),
+    npl_is_reducible(G, gauss_sum(E)),
+    E == var('N').
+
+%% gauss10_sum_to_closed_form_clause — rewritten to one clause, no recursion
+run_test(gauss10_sum_to_closed_form_clause) :-
+    gauss10_sum_to_group(G),
+    npl_reduce_clause_group(G, [ir_clause(H, B, Meta)]),
+    H == sum_to(var('N'), var('S')),
+    B == ir_seq(ir_call(var('N') >= 0),
+           ir_seq(ir_call(integer(var('N'))),
+                  ir_call(is(var('S'), (var('N') * (var('N') + 1)) // 2)))),
+    memberchk(optimisation_meta:Opts, Meta),
+    memberchk(gaussian_closed_form, Opts).
+
+%% gauss10_base_one_not_gauss_sum — f(0,1) is not the sum shape
+run_test(gauss10_base_one_not_gauss_sum) :-
+    G = [ ir_clause(f(0, 1), ir_true, []),
+          ir_clause(f(var('N'), var('S')),
+              ir_seq(ir_call(var('N') > 0),
+              ir_seq(ir_call(is(var('N1'), var('N') - 1)),
+              ir_seq(ir_call(f(var('N1'), var('S1'))),
+                     ir_call(is(var('S'), var('S1') + var('N')))))), []) ],
+    \+ npl_is_reducible(G, gauss_sum(_)),
+    \+ npl_is_reducible(G, linear_accumulate(_, _)).
+
+%% gauss10_accumulate_keeps_guards — factorial keeps N > 0 and N1 is N-1
+run_test(gauss10_accumulate_keeps_guards) :-
+    G = [ ir_clause(fact(0, 1), ir_true, []),
+          ir_clause(fact(var('N'), var('F')),
+              ir_seq(ir_call(var('N') > 0),
+              ir_seq(ir_call(is(var('N1'), var('N') - 1)),
+              ir_seq(ir_call(fact(var('N1'), var('F1'))),
+                     ir_call(is(var('F'), var('F1') * var('N')))))), []) ],
+    npl_is_reducible(G, linear_accumulate('*', 1)),
+    npl_reduce_clause_group(G, [_, _, ir_clause(_, Body, _)]),
+    Body = ir_seq(ir_call(Guard), ir_seq(ir_call(Dec), ir_seq(ir_call(is(_, _ * Extra)), ir_call(Rec)))),
+    Guard == (var('N') > 0),
+    Dec == is(var('N1'), var('N') - 1),
+    Extra == var('N'),
+    functor(Rec, fact_gauss_acc, 3),
+    arg(1, Rec, A1), A1 == var('N1').
+
+%% gauss10_rec_result_in_pre_rejected — a goal before the call may not use
+%% the recursive result, which is not yet known there
+run_test(gauss10_rec_result_in_pre_rejected) :-
+    G = [ ir_clause(h([], 0), ir_true, []),
+          ir_clause(h([var('X')|var('T')], var('S')),
+              ir_seq(ir_call(var('S1') > 0),
+              ir_seq(ir_call(h(var('T'), var('S1'))),
+                     ir_call(is(var('S'), var('S1') + var('X'))))), []) ],
+    \+ npl_is_reducible(G, linear_accumulate(_, _)),
+    npl_reduce_clause_group(G, R),
+    R == G.
+
+%% gauss10_squares_formula — 1^2+...+N^2 = N(N+1)(2N+1)/6, checked for N=0..30
+run_test(gauss10_squares_formula) :-
+    npl_sum_formula_check(30).
+
+npl_sum_formula_check(Max) :-
+    forall(between(0, Max, N),
+           ( gaussian_recursion:npl_sum_formula(var(n) * var(n), var(n), F),
+             gauss10_eval(F, N, V),
+             numlist(0, N, Ks), foldl(gauss10_add_sq, Ks, 0, V) )).
+
+gauss10_add_sq(K, A0, A) :- A is A0 + K*K.
+
+gauss10_eval(F, N, V) :-
+    gauss10_subst(F, N, E), V is E.
+gauss10_subst(var(n), N, N) :- !.
+gauss10_subst(T, _, T) :- atomic(T), !.
+gauss10_subst(T, N, T1) :- T =.. [F|As], maplist([A,B]>>gauss10_subst(A, N, B), As, Bs), T1 =.. [F|Bs].

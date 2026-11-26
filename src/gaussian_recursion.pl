@@ -78,7 +78,9 @@ npl_same_functor(F/A, ir_clause(Head, _, _)) :-
 %% npl_reduce_group/2
 %  Attempt to reduce a group of clauses for the same predicate.
 npl_reduce_group(Group, Reduced) :-
-    ( npl_is_reducible(Group, linear_tail_recursion) ->
+    ( npl_gauss_sum_rewrite(Group, Closed) ->
+        Reduced = Closed
+    ; npl_is_reducible(Group, linear_tail_recursion) ->
         npl_reduce_clause_group(Group, Reduced)
     ; npl_is_reducible(Group, linear_accumulate(_Op, _Id)) ->
         npl_reduce_clause_group(Group, Reduced)
@@ -111,29 +113,132 @@ npl_is_reducible(Group, linear_tail_recursion) :-
     npl_ir_body_ends_with_rec_call(StepBody, RecCall),
     functor(RecCall,  F, A).
 
+%  Pattern = gauss_sum(Extra)
+%    f(0, 0).
+%    f(N, S) :- N > 0, N1 is N - 1, f(N1, S1), S is S1 + Extra.
+%  with Extra one of N, N*N, C, C*N or N*C (C an integer). The sum has a
+%  closed form, so the recursion can be replaced by a formula.
+npl_is_reducible(Group, gauss_sum(Extra)) :-
+    npl_gauss_sum_parts(Group, _F, _N, _S, Extra, _Meta).
+
 %  Pattern = linear_accumulate(Op, Id)
 %    Two clauses; base body is ir_true and last head arg is a concrete
-%    integer (the identity); step body has exactly one recursive call
-%    whose result appears in an immediately following is/2 expression of
-%    the form  Result is Op(RecResult, Extra)  with Op in {+, *}.
+%    integer (the identity); the step body is
+%        Pre..., f(..., R1), R is Op(R1, Extra)
+%    where R is the head's result, Op is + or *, and neither Pre nor
+%    Extra uses R1. Pre (guards and argument updates, such as
+%    N > 0, N1 is N - 1) is kept in the rewritten clause.
 npl_is_reducible(Group, linear_accumulate(Op, Id)) :-
-    length(Group, 2),
-    Group = [Base, Step],
+    npl_accumulate_parts(Group, _F, _A, Op, Id, _Pre, _RecCall, _Extra).
+
+%% npl_accumulate_parts/8
+%  Analyse a linear accumulate group; fails if it is not one.
+npl_accumulate_parts([Base, Step], F, A, Op, Id, Pre, RecCall, Extra) :-
     Base  = ir_clause(BaseHead, ir_true, _),
     Step  = ir_clause(StepHead, StepBody, _),
+    callable(BaseHead), callable(StepHead),
     functor(BaseHead, F, A), A >= 2,
     functor(StepHead, F, A),
-    % Base result (last argument) must be a concrete integer
     BaseHead =.. [F|BaseArgs],
     last(BaseArgs, BaseResult),
     integer(BaseResult),
-    % Step body: find recursive call then is/2 arithmetic combination
-    npl_ir_body_find_rec_call(StepBody, F, A, RecCall),
-    npl_ir_last_arg(RecCall, RecResultVar),
-    npl_ir_body_find_is(StepBody, _ResultVar, ArithExpr),
-    npl_linear_arith(RecResultVar, ArithExpr, Op, _Extra),
+    npl_ir_body_goals(StepBody, Goals),
+    append(Pre, [RecCall, IsGoal], Goals),
+    callable(RecCall), functor(RecCall, F, A),
+    \+ ( member(G, Pre), callable(G), functor(G, F, A) ),
+    IsGoal = is(Result, Expr),
+    npl_ir_last_arg(StepHead, HeadResult),
+    Result == HeadResult,
+    npl_ir_last_arg(RecCall, RecResult),
+    npl_is_var_term(RecResult),
+    npl_linear_arith(RecResult, Expr, Op, Extra),
+    \+ npl_occurs(RecResult, Extra),
+    \+ npl_occurs(RecResult, Pre),
+    \+ npl_occurs(Result, Pre),
     npl_op_identity(Op, Id),
     Id =:= BaseResult.
+
+%% npl_gauss_sum_parts/6
+%  Analyse a group of the gauss_sum shape; fails if it is not one.
+npl_gauss_sum_parts([Base, Step], F, N, S, Extra, Meta) :-
+    Base = ir_clause(BaseHead, ir_true, _),
+    callable(BaseHead), BaseHead =.. [F, B0, B1],
+    B0 == 0, B1 == 0,
+    Step = ir_clause(StepHead, StepBody, Meta),
+    callable(StepHead), StepHead =.. [F, N, S],
+    npl_is_var_term(N), npl_is_var_term(S), N \== S,
+    npl_ir_body_goals(StepBody, [Guard, is(N1, Dec), RecCall, is(S0, Sum)]),
+    npl_positive_guard(Guard, N),
+    Dec = '-'(DN, One), DN == N, One == 1,
+    npl_is_var_term(N1),
+    callable(RecCall), RecCall =.. [F, RN, S1],
+    RN == N1, npl_is_var_term(S1), S1 \== S, S1 \== N,
+    S0 == S,
+    npl_linear_arith(S1, Sum, '+', Extra),
+    npl_sum_formula(Extra, N, _).
+
+npl_positive_guard('>'(X, Z), N)  :- X == N, Z == 0.
+npl_positive_guard('<'(Z, X), N)  :- X == N, Z == 0.
+npl_positive_guard('>='(X, O), N) :- X == N, O == 1.
+npl_positive_guard('=<'(O, X), N) :- X == N, O == 1.
+
+%% npl_sum_formula(+Extra, +N, -Formula)
+%  Formula = sum of Extra for k = 1..N, written in N.
+%  These are the classical closed forms (Gauss's sum and the sum of squares).
+npl_sum_formula(X, N, '//'('*'(N, '+'(N, 1)), 2)) :- X == N, !.
+npl_sum_formula('*'(X, Y), N,
+        '//'('*'('*'(N, '+'(N, 1)), '+'('*'(2, N), 1)), 6)) :-
+    X == N, Y == N, !.
+npl_sum_formula(C, N, '*'(C, N)) :- integer(C), !.
+npl_sum_formula('*'(C, X), N, '//'('*'(C, '*'(N, '+'(N, 1))), 2)) :-
+    integer(C), X == N, !.
+npl_sum_formula('*'(X, C), N, '//'('*'(C, '*'(N, '+'(N, 1))), 2)) :-
+    integer(C), X == N, !.
+
+%% npl_gauss_sum_rewrite(+Group, -[Clause])
+%  f(N, S) :- N >= 0, integer(N), S is Formula.
+%  N >= 0 raises the same instantiation error as N > 0 when N is unbound;
+%  integer(N) makes non-integers fail, as they do in the recursion
+%  (which counts down past zero without reaching the base case).
+npl_gauss_sum_rewrite(Group, [ir_clause(Head, Body, Meta1)]) :-
+    npl_gauss_sum_parts(Group, F, N, S, Extra, Meta),
+    npl_sum_formula(Extra, N, Formula),
+    Head =.. [F, N, S],
+    Body = ir_seq(ir_call('>='(N, 0)),
+                  ir_seq(ir_call(integer(N)),
+                         ir_call(is(S, Formula)))),
+    npl_add_opt_meta(Meta, gaussian_closed_form, Meta1).
+
+npl_add_opt_meta(Meta, Opt, Meta1) :-
+    is_list(Meta),
+    ( select(optimisation_meta:Opts, Meta, Rest) ->
+        append(Opts, [Opt], Opts1),
+        Meta1 = [optimisation_meta:Opts1|Rest]
+    ; Meta1 = [optimisation_meta:[Opt]|Meta]
+    ), !.
+npl_add_opt_meta(Meta, _, Meta).
+
+%% npl_ir_body_goals(+Body, -Goals)
+npl_ir_body_goals(ir_true, []) :- !.
+npl_ir_body_goals(ir_call(G), [G]) :- !.
+npl_ir_body_goals(ir_seq(L, R), Goals) :- !,
+    npl_ir_body_goals(L, GL),
+    npl_ir_body_goals(R, GR),
+    append(GL, GR, Goals).
+
+%% npl_ir_goals_body(+Goals, -Body)
+npl_ir_goals_body([], ir_true).
+npl_ir_goals_body([G], ir_call(G)) :- !.
+npl_ir_goals_body([G|Gs], ir_seq(ir_call(G), B)) :-
+    npl_ir_goals_body(Gs, B).
+
+%% Variables are Prolog variables or var(Name) terms from the parser.
+npl_is_var_term(X) :- var(X), !.
+npl_is_var_term(var(Name)) :- atom(Name).
+
+npl_occurs(X, T) :- X == T, !.
+npl_occurs(X, T) :- compound(T), T \= var(_),
+    T =.. [_|Args], member(A, Args), npl_occurs(X, A), !.
 
 %%====================================================================
 %% Recurrence extractor
@@ -151,7 +256,12 @@ npl_extract_recurrence(Group, Recurrence) :-
     Group = [ir_clause(Head, _, _)|_],
     functor(Head, F, A),
     Sig = F/A,
-    ( npl_is_reducible(Group, linear_tail_recursion) ->
+    ( npl_is_reducible(Group, gauss_sum(Extra)) ->
+        Group = [Base|_],
+        Base  = ir_clause(BaseHead, _, _),
+        Recurrence = recurrence(Sig, gauss_sum,
+                                info(extra:Extra, base:BaseHead))
+    ; npl_is_reducible(Group, linear_tail_recursion) ->
         Group = [Base|_],
         Base  = ir_clause(BaseHead, _, _),
         Recurrence = recurrence(Sig, linear_tail, info(base:BaseHead))
@@ -174,7 +284,9 @@ npl_extract_recurrence([], recurrence(unknown/0, none, info(reason:empty_group))
 %  Rewrite a recognised group.  Falls back to Group if the specific
 %  transform cannot be safely constructed.
 npl_reduce_clause_group(Group, Reduced) :-
-    ( npl_is_reducible(Group, linear_accumulate(_Op, _Id)) ->
+    ( npl_gauss_sum_rewrite(Group, Closed) ->
+        Reduced = Closed
+    ; npl_is_reducible(Group, linear_accumulate(_Op, _Id)) ->
         ( npl_accumulator_rewrite(Group, AccGroup) ->
             Reduced = AccGroup
         ; Reduced = Group
@@ -185,64 +297,53 @@ npl_reduce_clause_group(Group, Reduced) :-
 
 %% npl_accumulator_rewrite/2
 %  npl_accumulator_rewrite(+[BaseClause,StepClause], -NewClauses)
-%  Produce three accumulator-form IR clauses replacing the original two.
+%  Produce three accumulator-form IR clauses replacing the original two:
+%      f(S..., R) :- f_gauss_acc(S..., Id, R).
+%      f_gauss_acc(BaseS..., Acc, Acc).
+%      f_gauss_acc(StepS..., Acc0, R) :-
+%          Pre..., Acc1 is Op(Acc0, Extra), f_gauss_acc(RecS..., Acc1, R).
+%  Pre (guards and argument updates) is kept, so that the rewritten
+%  predicate succeeds for the same inputs. Since + and * are associative
+%  and commutative, adding the terms in the opposite order gives the same
+%  integer result (floating-point results can differ in the last digits).
 %  Fails if the structural analysis cannot be completed safely.
-npl_accumulator_rewrite([Base, Step], [WrapClause, AccBase, AccStep]) :-
-    Base = ir_clause(BaseHead, ir_true, _),
-    Step = ir_clause(StepHead, StepBody, _),
-    functor(BaseHead, F, A),
-    A >= 2,
+npl_accumulator_rewrite(Group, [WrapClause, AccBase, AccStep]) :-
+    npl_accumulate_parts(Group, F, A, Op, Identity, Pre, RecCall, Extra),
+    Group = [ir_clause(BaseHead, ir_true, _), ir_clause(StepHead, _, _)],
     atom_concat(F, '_gauss_acc', FAccName),
-
-    % Extract identity from base (last arg must be concrete integer)
     BaseHead =.. [F|BArgs],
-    last(BArgs, Identity),
-    integer(Identity),
-    append(BStructArgs, [Identity], BArgs),
-    length(BStructArgs, NStruct),
-    NStruct >= 1,
+    append(BStructArgs, [_], BArgs),
+    BStructArgs \== [],
 
-    % Validate and extract step components
-    npl_ir_body_find_rec_call(StepBody, F, A, RecCall),
-    npl_ir_last_arg(RecCall, RecResultVar),
-    npl_ir_body_find_is(StepBody, _StepResultVar, ArithExpr),
-    npl_linear_arith(RecResultVar, ArithExpr, Op, Extra),
-    npl_op_identity(Op, Identity),
-
-    % Structural args from step head (all except last/result)
     StepHead =.. [F|SArgs],
     append(SStructArgs, [_SResult], SArgs),
-
-    % Structural args from recursive call (all except last/result)
     RecCall =.. [F|RArgs],
     append(RStructArgs, [_RResult], RArgs),
 
-    % --- 1. Wrapper clause: f(WS..., WR) :- f_gauss_acc(WS..., Id, WR) ---
-    functor(WrapHead, F, A),
-    WrapHead =.. [F|WrapAllArgs],
-    last(WrapAllArgs, WrapR),
+    % 1. Wrapper clause: f(W..., R) :- f_gauss_acc(W..., Id, R)
+    length(WrapSArgs, NS), length(BStructArgs, NS),
     append(WrapSArgs, [WrapR], WrapAllArgs),
+    WrapHead =.. [F|WrapAllArgs],
     append(WrapSArgs, [Identity, WrapR], WrapAccArgs),
     WrapBodyGoal =.. [FAccName|WrapAccArgs],
     WrapClause = ir_clause(WrapHead, ir_call(WrapBodyGoal), []),
 
-    % --- 2. Accumulator base: f_gauss_acc(BStruct..., Acc, Acc) :- true ---
-    % Use copy_term so BStructArgs get fresh variable copies
+    % 2. Accumulator base: f_gauss_acc(B..., Acc, Acc)
     copy_term(BStructArgs, BStructArgsCopy),
     append(BStructArgsCopy, [AccBaseVar, AccBaseVar], AccBaseArgList),
     AccBaseHead =.. [FAccName|AccBaseArgList],
     AccBase = ir_clause(AccBaseHead, ir_true, []),
 
-    % --- 3. Accumulator step: f_gauss_acc(SStruct..., Acc0, R) :-
-    %            Acc1 is Op(Acc0, Extra), f_gauss_acc(RStruct..., Acc1, R) ---
-    % copy_term keeps sharing between SStructArgs, RStructArgs, Extra
-    copy_term(SStructArgs-RStructArgs-Extra, SStructCopy-RStructCopy-ExtraCopy),
+    % 3. Accumulator step (copy_term keeps the sharing between its parts)
+    copy_term(SStructArgs-RStructArgs-Extra-Pre,
+              SStructCopy-RStructCopy-ExtraCopy-PreCopy),
     npl_build_arith(Op, Acc0, ExtraCopy, NewArithExpr),
     append(SStructCopy, [Acc0, AccStepResult], AccStepHeadArgs),
     AccStepHead =.. [FAccName|AccStepHeadArgs],
     append(RStructCopy, [Acc1, AccStepResult], AccStepRecArgs),
     AccStepRecCall =.. [FAccName|AccStepRecArgs],
-    AccStepBody = ir_seq(ir_call(is(Acc1, NewArithExpr)), ir_call(AccStepRecCall)),
+    append(PreCopy, [is(Acc1, NewArithExpr), AccStepRecCall], AccGoals),
+    npl_ir_goals_body(AccGoals, AccStepBody),
     AccStep = ir_clause(AccStepHead, AccStepBody, []).
 
 %%====================================================================

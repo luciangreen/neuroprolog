@@ -80,9 +80,55 @@ Detection criteria:
 - Exactly two clauses.
 - Base clause body is `ir_true`; last argument of the base head is a
   concrete integer (the identity).
-- Step clause body contains exactly one recursive call followed by an
-  `is/2` goal of the form `R is Op(RecResult, Extra)` where `Op` is
-  `+` or `*`.
+- Step clause body is `Pre..., f(..., RecResult), R is Op(RecResult, Extra)`
+  where `R` is the head's result and `Op` is `+` or `*`. The goals `Pre`
+  (guards and argument updates such as `N > 0, N1 is N - 1`) are kept, in
+  order, before the accumulator update, so the rewritten predicate
+  succeeds for the same inputs. Neither `Pre` nor `Extra` may use
+  `RecResult`. (Before this was added, only steps with no goals before the
+  recursive call were recognised, so counting recursions such as
+  factorial were left unchanged.)
+
+For example, factorial becomes:
+
+```prolog
+fact(A, B) :- fact_gauss_acc(A, 1, B).
+fact_gauss_acc(0, A, A).
+fact_gauss_acc(A, B, C) :- A>0, D is A-1, E is B*A, fact_gauss_acc(D, E, C).
+```
+
+Integer results are the same as the original's. Floating-point results can
+differ in the last digits, because the terms are combined in the opposite
+order.
+
+### `gauss_sum(Extra)` — closed forms
+
+```prolog
+sum_to(0, 0).
+sum_to(N, S) :- N > 0, N1 is N - 1, sum_to(N1, S1), S is S1 + N.
+```
+
+The step adds a term to the sum for `N - 1`, so the predicate computes
+`Extra(1) + ... + Extra(N)`. When `Extra` is `N`, `N*N`, an integer `C`,
+`C*N` or `N*C`, the sum has a closed form (Gauss's formula, the sum of
+squares, or a multiple of either), and the two clauses are replaced by one:
+
+```prolog
+sum_to(N, S) :- N >= 0, integer(N), S is N*(N+1)//2.
+```
+
+| Extra   | Formula                  |
+|---------|--------------------------|
+| `N`     | `N*(N+1)//2`             |
+| `N*N`   | `N*(N+1)*(2*N+1)//6`     |
+| `C`     | `C*N`                    |
+| `C*N`   | `C*(N*(N+1))//2`         |
+
+The guard may be `N > 0`, `0 < N`, `N >= 1` or `1 =< N`. The new clause
+behaves like the old one: a negative or non-integer `N` fails (the
+recursion counts down past 0 without reaching the base case), and an
+unbound `N` raises the same instantiation error. The equivalence tests run
+both forms on every N from -3 to 50 and compare the answers.
 
 ---
 

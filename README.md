@@ -1,7 +1,7 @@
 # NeuroProlog
 
 * Note: NeuroProlog is a WAM interpreter, not a neuro-optimising interpreter (this feature doesn't work). A new interpreter with these features is needed.
-* What works now: the self-hosting interpreter, lexing, parsing, round trips to neurocode, and simple identity optimisations (for example `Y is X*2+0` becomes `Y is X*2`). Recurrences such as a recursive `sum_to/2` are written back unchanged, so the claims below about reducing recursion to loop forms describe the design, not current results.
+* What works now: the self-hosting interpreter, lexing, parsing, round trips to neurocode, simple identity optimisations (for example `Y is X*2+0` becomes `Y is X*2`), and two recursion rewrites: a sum such as `sum_to(N, S)` (1+2+...+N, and likewise sums of squares, multiples or constants) is replaced by its closed formula, `S is N*(N+1)//2`, and other linear recurrences such as factorial or a list sum become tail-recursive accumulator loops, keeping their guards. `tests/equivalence_tests.pl` runs each rewritten program and its source on 209 inputs and requires the same answers. Other claims below about reducing recursion describe the design, not current results.
 
 NeuroProlog is a Prolog interpreter written in Prolog that compiles Prolog into *neurocode* — an optimised, transparent Prolog representation. It is self-hosting: it can compile itself, rebuild itself, and preserve its own optimisations during rebuilds.
 
